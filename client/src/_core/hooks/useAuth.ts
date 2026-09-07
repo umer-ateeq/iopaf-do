@@ -1,3 +1,4 @@
+import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
@@ -38,9 +39,18 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
+      // Clearing the application cookie alone is not a sign-out. The Supabase
+      // session lives on in local storage, and /login promotes any surviving
+      // session straight back into a new cookie — so the user was returned to
+      // the portal immediately and Sign out appeared to do nothing. End the
+      // identity-provider session too.
+      if (supabaseConfigured) {
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutError) {
+          console.warn("[Auth] Supabase sign-out failed", signOutError);
+        }
+      }
       try {
         sessionStorage.removeItem("manus-cookie");
       } catch {}
