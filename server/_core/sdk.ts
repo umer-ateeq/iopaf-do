@@ -289,6 +289,25 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
+    // The users table is an audit record written at sign-in by the record-user
+    // Edge Function; it is not this host's source of truth for a request. The
+    // session cookie is a JWT we signed ourselves and have already verified, so
+    // when no database is configured on this host we serve the request from the
+    // session claims instead of failing it.
+    if (!user && !process.env.DATABASE_URL) {
+      return {
+        id: -1,
+        openId: sessionUserId,
+        name: session.name,
+        email: null,
+        loginMethod: null,
+        role: "user",
+        createdAt: signedInAt,
+        updatedAt: signedInAt,
+        lastSignedIn: signedInAt,
+      } as AuthenticatedUser;
+    }
+
     // If the user row is missing, rebuild it from the session we signed
     // ourselves. The previous implementation called back to the Manus OAuth
     // service here, which does not exist off-platform; the session payload

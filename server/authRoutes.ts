@@ -1,9 +1,8 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
-import * as db from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
-import { verifySupabaseAccessToken } from "./_core/supabaseAuth";
+import { verifyAndRecordUser } from "./_core/supabaseAuth";
 
 /**
  * Supabase session exchange.
@@ -36,25 +35,14 @@ export function registerAuthRoutes(app: Express) {
       return;
     }
 
-    const identity = await verifySupabaseAccessToken(accessToken);
-    if (!identity) {
+    // Verification and the users-row write both happen inside Supabase, so this
+    // host needs no database credential of any kind.
+    const result = await verifyAndRecordUser(accessToken);
+    if (!result) {
       res.status(401).json({ error: "Invalid or expired Supabase session" });
       return;
     }
-
-    try {
-      await db.upsertUser({
-        openId: identity.openId,
-        name: identity.name,
-        email: identity.email,
-        loginMethod: identity.loginMethod,
-        lastSignedIn: new Date(),
-      });
-    } catch (error) {
-      console.error("[Auth] Failed to record user:", error);
-      res.status(500).json({ error: "Could not record user" });
-      return;
-    }
+    const { identity } = result;
 
     // verifySession() rejects a session whose name is empty, so an identity
     // with no display name would sign in successfully and then be bounced on
@@ -72,6 +60,6 @@ export function registerAuthRoutes(app: Express) {
       maxAge: ONE_YEAR_MS,
     });
 
-    res.json({ success: true, openId: identity.openId });
+    res.json({ success: true, openId: identity.openId, recorded: result.recorded });
   });
 }

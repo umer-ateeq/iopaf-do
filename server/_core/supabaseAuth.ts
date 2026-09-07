@@ -89,3 +89,56 @@ export async function verifySupabaseAccessToken(
     loginMethod: readString(user.app_metadata ?? null, "provider") ?? "email",
   };
 }
+
+/**
+ * Verify the caller and record them, via the record-user Edge Function.
+ *
+ * Preferred over verifySupabaseAccessToken() because the function also writes
+ * the users row using the service role that Supabase injects into its own
+ * runtime. That keeps the Postgres password and the service-role key off the
+ * web host entirely — the host holds only the publishable key.
+ *
+ * If the function itself is unreachable we fall back to direct token
+ * verification. Sign-in then still succeeds; only the audit row is skipped.
+ */
+export async function verifyAndRecordUser(
+  accessToken: string
+): Promise<{ identity: SupabaseIdentity; recorded: boolean } | null> {
+  if (!isSupabaseConfigured() || !accessToken) return null;
+
+  const url = `${ENV.supabaseUrl.replace(/\/+$/, "")}/functions/v1/record-user`;
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: ENV.supabaseKey,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (response.status === 401 || response.status === 403) return null;
+
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as
+        | { identity?: SupabaseIdentity; recorded?: boolean }
+        | null;
+      if (body?.identity?.openId) {
+        if (body.recorded === false) {
+          console.warn("[SupabaseAuth] Identity verified but the users row was not written");
+        }
+        return { identity: body.identity, recorded: body.recorded === true };
+      }
+    }
+
+    console.warn(`[SupabaseAuth] record-user returned ${response.status}; verifying directly`);
+  } catch (error) {
+    console.warn("[SupabaseAuth] record-user unreachable; verifying directly:", String(error));
+  }
+
+  const identity = await verifySupabaseAccessToken(accessToken);
+  return identity ? { identity, recorded: false } : null;
+}

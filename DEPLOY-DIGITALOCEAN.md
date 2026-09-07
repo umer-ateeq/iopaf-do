@@ -23,20 +23,26 @@ fail safely at request time rather than at boot.
 - `GET /` → 200, `GET /app.html` → 302 (auth guard active)
 - Boots without a database: logs a clear OAuth error but does not crash, so the health check still passes
 
+## Database credentials are not required on this host
+
+The users row is written by the `record-user` Supabase Edge Function, which runs
+inside Supabase where the service-role key is injected by the platform. The web
+host holds only the publishable key, which carries no privileges beyond RLS.
+`public.users` has RLS enabled with no policies, so that function is the only
+path able to write it.
+
+`authenticateRequest` therefore does not need a database either: the session
+cookie is a JWT this server signed and verified, so when `DATABASE_URL` is absent
+the request is served from the session claims. Setting `DATABASE_URL` is optional
+and only enables reading the stored row (for `role` and `email`).
+
 ## Still required before it works end to end
 
-**Authentication.** The Manus OAuth endpoints will not function off-Manus.
-`server/_core/sdk.ts` is the seam — three methods:
-
-- `exchangeCodeForToken(code, state)`
-- `getUserInfo(accessToken)`
-- `authenticateRequest(req)`
-
-Everything around it is standard and stays: the callback route, the CSRF nonce
-check, session cookie handling, and the `/app.html` guard in `portalAccess.ts`.
-
-Until this is replaced, the site deploys and the public pages render, but nobody
-can sign in and `/app.html` stays behind a 302.
+**Supabase URL configuration.** Authentication -> URL Configuration must list the
+deployed origin's `/auth/callback` under Redirect URLs, and Site URL must be the
+https origin. When a requested `emailRedirectTo` is not on the allow list,
+Supabase silently falls back to Site URL, which is how sign-in links end up
+pointing at localhost.
 
 ## Deploy steps
 

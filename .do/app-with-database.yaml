@@ -8,6 +8,13 @@
 name: iopaf
 region: fra          # pick the region nearest your assessors
 
+# The custom domain is declared here so that applying this spec never
+# silently removes it. A spec without a domains block deletes any domain
+# added through the dashboard.
+domains:
+  - domain: iopaf.ovx-ai.com
+    type: PRIMARY
+
 services:
   - name: web
     environment_slug: node-js

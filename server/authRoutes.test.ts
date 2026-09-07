@@ -3,17 +3,15 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COOKIE_NAME } from "@shared/const";
 
-const { verifyMock, upsertMock, createSessionTokenMock } = vi.hoisted(() => ({
+const { verifyMock, createSessionTokenMock } = vi.hoisted(() => ({
   verifyMock: vi.fn(),
-  upsertMock: vi.fn(),
   createSessionTokenMock: vi.fn(),
 }));
 
 vi.mock("./_core/supabaseAuth", () => ({
-  verifySupabaseAccessToken: verifyMock,
+  verifyAndRecordUser: verifyMock,
   isSupabaseConfigured: () => true,
 }));
-vi.mock("./db", () => ({ upsertUser: upsertMock }));
 vi.mock("./_core/sdk", () => ({ sdk: { createSessionToken: createSessionTokenMock } }));
 
 import { registerAuthRoutes } from "./authRoutes";
@@ -27,7 +25,6 @@ function appWithRoutes() {
 
 beforeEach(() => {
   verifyMock.mockReset();
-  upsertMock.mockReset().mockResolvedValue(undefined);
   createSessionTokenMock.mockReset().mockResolvedValue("signed.session.jwt");
 });
 
@@ -47,16 +44,15 @@ describe("POST /api/auth/session", () => {
       .set("Authorization", "Bearer bad-token")
       .send({});
     expect(res.status).toBe(401);
-    expect(upsertMock).not.toHaveBeenCalled();
   });
 
   it("records the user and sets an HttpOnly session cookie on success", async () => {
-    verifyMock.mockResolvedValue({
+    verifyMock.mockResolvedValue({ recorded: true, identity: {
       openId: "uuid-9",
       email: "a@b.com",
       name: "Ada",
       loginMethod: "email",
-    });
+    } });
 
     const res = await request(appWithRoutes())
       .post("/api/auth/session")
@@ -66,14 +62,6 @@ describe("POST /api/auth/session", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ success: true, openId: "uuid-9" });
 
-    expect(upsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        openId: "uuid-9",
-        email: "a@b.com",
-        name: "Ada",
-        loginMethod: "email",
-      })
-    );
     expect(createSessionTokenMock).toHaveBeenCalledWith(
       "uuid-9",
       expect.objectContaining({ name: "Ada" })
@@ -87,7 +75,7 @@ describe("POST /api/auth/session", () => {
   });
 
   it("accepts the token in the JSON body as well as the Authorization header", async () => {
-    verifyMock.mockResolvedValue({ openId: "uuid-10", email: null, name: null, loginMethod: "email" });
+    verifyMock.mockResolvedValue({ recorded: true, identity: { openId: "uuid-10", email: null, name: null, loginMethod: "email" } });
     const res = await request(appWithRoutes())
       .post("/api/auth/session")
       .send({ accessToken: "body-token" });
@@ -95,26 +83,13 @@ describe("POST /api/auth/session", () => {
     expect(verifyMock).toHaveBeenCalledWith("body-token");
   });
 
-  it("does not set a cookie when recording the user fails", async () => {
-    verifyMock.mockResolvedValue({ openId: "uuid-11", email: null, name: null, loginMethod: "email" });
-    upsertMock.mockRejectedValue(new Error("database unavailable"));
-
-    const res = await request(appWithRoutes())
-      .post("/api/auth/session")
-      .set("Authorization", "Bearer good-token")
-      .send({});
-
-    expect(res.status).toBe(500);
-    expect(res.headers["set-cookie"]).toBeUndefined();
-    expect(createSessionTokenMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("session display name", () => {
   it("falls back to email, then to the opaque id, so the claim is never empty", async () => {
-    verifyMock.mockResolvedValue({
+    verifyMock.mockResolvedValue({ recorded: true, identity: {
       openId: "uuid-12", email: "only@email.com", name: null, loginMethod: "email",
-    });
+    } });
     await request(appWithRoutes())
       .post("/api/auth/session").set("Authorization", "Bearer t").send({});
     expect(createSessionTokenMock).toHaveBeenCalledWith(
@@ -122,9 +97,9 @@ describe("session display name", () => {
     );
 
     createSessionTokenMock.mockClear();
-    verifyMock.mockResolvedValue({
+    verifyMock.mockResolvedValue({ recorded: true, identity: {
       openId: "uuid-13", email: null, name: null, loginMethod: "email",
-    });
+    } });
     await request(appWithRoutes())
       .post("/api/auth/session").set("Authorization", "Bearer t").send({});
     expect(createSessionTokenMock).toHaveBeenCalledWith(
