@@ -15,7 +15,7 @@ services:
     instance_count: 1
 
     github:
-      repo: REPLACE_ME_OWNER/REPLACE_ME_REPO
+      repo: umer-ateeq/iopaf-do
       branch: main
       deploy_on_push: true
 
