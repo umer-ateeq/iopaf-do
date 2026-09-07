@@ -109,3 +109,26 @@ describe("POST /api/auth/session", () => {
     expect(createSessionTokenMock).not.toHaveBeenCalled();
   });
 });
+
+describe("session display name", () => {
+  it("falls back to email, then to the opaque id, so the claim is never empty", async () => {
+    verifyMock.mockResolvedValue({
+      openId: "uuid-12", email: "only@email.com", name: null, loginMethod: "email",
+    });
+    await request(appWithRoutes())
+      .post("/api/auth/session").set("Authorization", "Bearer t").send({});
+    expect(createSessionTokenMock).toHaveBeenCalledWith(
+      "uuid-12", expect.objectContaining({ name: "only@email.com" })
+    );
+
+    createSessionTokenMock.mockClear();
+    verifyMock.mockResolvedValue({
+      openId: "uuid-13", email: null, name: null, loginMethod: "email",
+    });
+    await request(appWithRoutes())
+      .post("/api/auth/session").set("Authorization", "Bearer t").send({});
+    expect(createSessionTokenMock).toHaveBeenCalledWith(
+      "uuid-13", expect.objectContaining({ name: "uuid-13" })
+    );
+  });
+});

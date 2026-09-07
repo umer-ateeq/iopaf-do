@@ -56,8 +56,14 @@ export function registerAuthRoutes(app: Express) {
       return;
     }
 
+    // verifySession() rejects a session whose name is empty, so an identity
+    // with no display name would sign in successfully and then be bounced on
+    // every subsequent request. Fall back through email to the opaque id so the
+    // claim is always populated.
+    const displayName = identity.name ?? identity.email ?? identity.openId;
+
     const sessionToken = await sdk.createSessionToken(identity.openId, {
-      name: identity.name ?? "",
+      name: displayName,
       expiresInMs: ONE_YEAR_MS,
     });
 

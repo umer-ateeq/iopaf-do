@@ -61,7 +61,7 @@ services:
       # They must be repointed at whichever provider replaces server/_core/sdk.ts.
       - key: VITE_APP_ID
         scope: RUN_AND_BUILD_TIME
-        value: REPLACE_ME
+        value: iopaf
       - key: OAUTH_SERVER_URL
         scope: RUN_TIME
         value: REPLACE_ME
