@@ -100,11 +100,3 @@ services:
       - key: OWNER_NAME
         scope: RUN_TIME
         value: REPLACE_ME
-
-      # Optional; unset only produces a build warning.
-      - key: VITE_ANALYTICS_ENDPOINT
-        scope: BUILD_TIME
-        value: ""
-      - key: VITE_ANALYTICS_WEBSITE_ID
-        scope: BUILD_TIME
-        value: ""

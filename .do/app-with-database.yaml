@@ -76,15 +76,6 @@ services:
         scope: RUN_TIME
         value: REPLACE_ME
 
-      # Optional. client/index.html references these; unset only produces a
-      # build warning and disables the umami analytics snippet.
-      - key: VITE_ANALYTICS_ENDPOINT
-        scope: BUILD_TIME
-        value: ""
-      - key: VITE_ANALYTICS_WEBSITE_ID
-        scope: BUILD_TIME
-        value: ""
-
 databases:
   - name: iopaf-db
     engine: MYSQL
