@@ -682,6 +682,22 @@ body { background: var(--paper); color: var(--ink); }
 .footer-links a,.footer-links button { color: #edf3f6; }
 .portal-bar { color: var(--ink); background: white; border-bottom-color: var(--cobalt); }
 .portal-bar .wordmark > small,.portal-user { color: #607785; }
+/* The light-theme portal bar above turns the background white. The base rule
+   sets .portal-user a/button to color:white, which left Website and Sign out
+   as invisible white-on-white boxes. Re-colour them for the light bar. */
+.portal-bar .portal-user a,
+.portal-bar .portal-user button {
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid #b9c7d0;
+  cursor: pointer;
+}
+.portal-bar .portal-user a:hover,
+.portal-bar .portal-user button:hover {
+  color: white;
+  background: var(--ink);
+  border-color: var(--ink);
+}
 
 /* Premium editorial theme refinement */
 :root {
