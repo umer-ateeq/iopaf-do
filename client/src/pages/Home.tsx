@@ -1,5 +1,4 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { useEffect, useRef, useState } from "react";
 
 const standards = [
@@ -383,7 +382,9 @@ export default function Home() {
     window.setTimeout(() => authTriggerRef.current?.focus(), 0);
   };
   const continueToSecureAccount = () => {
-    startLogin("/portal");
+    // Was startLogin("/portal"), which redirected to the Manus OAuth portal.
+    // Identity now comes from Supabase via the /login page.
+    window.location.href = "/login";
   };
   const currentTour = tourSteps[tourStep];
   const openTour = () => { tourWasOpenedRef.current = true; setTourStep(0); setTourOpen(true); };

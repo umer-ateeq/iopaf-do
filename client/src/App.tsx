@@ -6,6 +6,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Portal from "./pages/Portal";
+import Login from "./pages/Login";
+import AuthCallback from "./pages/AuthCallback";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -13,6 +15,8 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/portal"} component={Portal} />
+      <Route path={"/login"} component={Login} />
+      <Route path={"/auth/callback"} component={AuthCallback} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

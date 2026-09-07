@@ -7,4 +7,8 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Supabase Auth replaces the Manus OAuth service. The publishable
+  // (anon) key is safe to hold server-side; it only identifies the project.
+  supabaseUrl: process.env.SUPABASE_URL ?? "",
+  supabaseKey: process.env.SUPABASE_PUBLISHABLE_KEY ?? "",
 };

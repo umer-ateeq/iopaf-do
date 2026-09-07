@@ -289,21 +289,22 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // If the user row is missing, rebuild it from the session we signed
+    // ourselves. The previous implementation called back to the Manus OAuth
+    // service here, which does not exist off-platform; the session payload
+    // already carries a verified openId and name, so no external call is
+    // needed. Identity is established once, at POST /api/auth/session.
     if (!user) {
       try {
-        const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
         await db.upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || null,
-          email: userInfo.email ?? null,
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+          openId: sessionUserId,
+          name: session.name || null,
           lastSignedIn: signedInAt,
         });
-        user = await db.getUserByOpenId(userInfo.openId);
+        user = await db.getUserByOpenId(sessionUserId);
       } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
+        console.error("[Auth] Failed to restore user from session:", error);
+        throw ForbiddenError("Failed to restore user record");
       }
     }
 

@@ -25,7 +25,10 @@ services:
 
     # DO's Node buildpack defaults to npm; this project needs pnpm 10.
     build_command: corepack enable && pnpm install --frozen-lockfile && pnpm build
-    run_command: pnpm start
+    # Run node directly. `pnpm start` makes corepack download pnpm from npmjs
+    # on every container start, which adds startup latency and fails the health
+    # check whenever that fetch is slow or blocked. NODE_ENV is already set below.
+    run_command: node dist/index.js
 
     http_port: 8080
 
@@ -52,6 +55,30 @@ services:
         scope: RUN_TIME
         type: SECRET
         value: REPLACE_ME_GENERATE_A_LONG_RANDOM_STRING
+
+      # ---- Supabase (auth + Postgres) ----
+      # Publishable key: safe to expose; it only identifies the project and
+      # carries no privileges beyond what RLS allows.
+      - key: SUPABASE_URL
+        scope: RUN_TIME
+        value: https://ydmzizulxcweiorcvbag.supabase.co
+      - key: SUPABASE_PUBLISHABLE_KEY
+        scope: RUN_TIME
+        value: sb_publishable_flvh9YNP_dKfDQiV8iw7Mw_qQ6xyv4-
+      - key: VITE_SUPABASE_URL
+        scope: BUILD_TIME
+        value: https://ydmzizulxcweiorcvbag.supabase.co
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        scope: BUILD_TIME
+        value: sb_publishable_flvh9YNP_dKfDQiV8iw7Mw_qQ6xyv4-
+
+      # Postgres connection string from Supabase → Project Settings → Database.
+      # Contains the database password, so it must be set as an encrypted
+      # secret. Login cannot work until this is populated.
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+        value: REPLACE_ME_SUPABASE_POSTGRES_CONNECTION_STRING
 
       # ---- Auth provider ----
       # These were Manus-issued and do NOT work off-Manus. Until
