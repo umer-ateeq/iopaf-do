@@ -1,0 +1,90 @@
+# DigitalOcean App Platform spec for the IOPAF platform.
+#
+# Create with:   doctl apps create --spec .do/app.yaml
+# Update with:   doctl apps update <APP_ID> --spec .do/app.yaml
+#
+# Replace REPLACE_ME values before first deploy.
+
+name: iopaf
+region: fra          # pick the region nearest your assessors
+
+services:
+  - name: web
+    environment_slug: node-js
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+
+    github:
+      repo: REPLACE_ME_OWNER/REPLACE_ME_REPO
+      branch: main
+      deploy_on_push: true
+
+    # DO's Node buildpack defaults to npm; this project requires pnpm 10.
+    build_command: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    run_command: pnpm start
+
+    http_port: 8080
+
+    health_check:
+      http_path: /
+      initial_delay_seconds: 20
+      period_seconds: 10
+      failure_threshold: 5
+
+    envs:
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+
+      # App Platform injects PORT. server/_core/index.ts now honours it verbatim.
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+
+      # Managed MySQL below is bound automatically via this reference.
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${iopaf-db.DATABASE_URL}
+
+      # Session signing secret. Set as an encrypted secret in the DO dashboard,
+      # or via: doctl apps update <id> --spec (with type: SECRET)
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_ME_GENERATE_A_LONG_RANDOM_STRING
+
+      # ---- Auth provider ----
+      # These were Manus-issued and will NOT work off-Manus.
+      # They must be repointed at whichever provider replaces server/_core/sdk.ts.
+      - key: VITE_APP_ID
+        scope: RUN_AND_BUILD_TIME
+        value: REPLACE_ME
+      - key: OAUTH_SERVER_URL
+        scope: RUN_TIME
+        value: REPLACE_ME
+      - key: VITE_OAUTH_PORTAL_URL
+        scope: RUN_AND_BUILD_TIME
+        value: REPLACE_ME
+
+      - key: OWNER_OPEN_ID
+        scope: RUN_TIME
+        value: REPLACE_ME
+      - key: OWNER_NAME
+        scope: RUN_TIME
+        value: REPLACE_ME
+
+      # Optional. client/index.html references these; unset only produces a
+      # build warning and disables the umami analytics snippet.
+      - key: VITE_ANALYTICS_ENDPOINT
+        scope: BUILD_TIME
+        value: ""
+      - key: VITE_ANALYTICS_WEBSITE_ID
+        scope: BUILD_TIME
+        value: ""
+
+databases:
+  - name: iopaf-db
+    engine: MYSQL
+    version: "8"
+    production: true
+    cluster_name: iopaf-db

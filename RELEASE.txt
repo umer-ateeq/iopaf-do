@@ -1,0 +1,9 @@
+IOPAF Platform Complete Source Package
+Website checkpoint: 2a9eb945
+Package folder: IOPAF-Platform-Complete-2a9eb945
+Package archive: IOPAF-Platform-Complete-2a9eb945.zip
+Source files: 188
+Uncompressed size: 8.8 MB
+Protected engine SHA-256: c210471e79baf66980415a61e55d786c6b71b70a4bca04dbdf0cdfb52d86886f
+Archive SHA-256: see adjacent IOPAF-Platform-Complete-2a9eb945.zip.sha256
+Security review: secrets, environment files, dependency folders, logs, repository history and generated build output excluded

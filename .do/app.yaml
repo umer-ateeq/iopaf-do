@@ -1,0 +1,83 @@
+# DigitalOcean App Platform — $5/month tier, no managed database.
+#
+# server/db.ts creates the connection lazily and returns null when
+# DATABASE_URL is absent; callers warn instead of throwing. The app therefore
+# runs correctly with no database. Since the schema holds user accounts only,
+# and sign-in cannot work until Manus OAuth is replaced, the database buys
+# nothing yet — add it with .do/app-with-database.yaml when auth is live.
+#
+# Create:  doctl apps create --spec .do/app.yaml
+# Update:  doctl apps update <APP_ID> --spec .do/app.yaml
+
+name: iopaf
+region: fra                      # pick the region nearest your assessors
+
+services:
+  - name: web
+    environment_slug: node-js
+    instance_size_slug: apps-s-1vcpu-0.5gb   # $5/mo basic tier
+    instance_count: 1
+
+    github:
+      repo: REPLACE_ME_OWNER/REPLACE_ME_REPO
+      branch: main
+      deploy_on_push: true
+
+    # DO's Node buildpack defaults to npm; this project needs pnpm 10.
+    build_command: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    run_command: pnpm start
+
+    http_port: 8080
+
+    health_check:
+      http_path: /
+      initial_delay_seconds: 30
+      period_seconds: 10
+      failure_threshold: 5
+
+    envs:
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+
+      # App Platform injects PORT; server/_core/index.ts now honours it verbatim
+      # instead of scanning for a free port.
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+
+      # Session signing secret. Generate a long random string and set it as an
+      # encrypted secret in the dashboard, or keep type: SECRET here.
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_ME_GENERATE_A_LONG_RANDOM_STRING
+
+      # ---- Auth provider ----
+      # These were Manus-issued and do NOT work off-Manus. Until
+      # server/_core/sdk.ts is repointed at a real provider, the public site
+      # renders but nobody can sign in and /app.html stays behind a 302.
+      - key: VITE_APP_ID
+        scope: RUN_AND_BUILD_TIME
+        value: REPLACE_ME
+      - key: OAUTH_SERVER_URL
+        scope: RUN_TIME
+        value: REPLACE_ME
+      - key: VITE_OAUTH_PORTAL_URL
+        scope: RUN_AND_BUILD_TIME
+        value: REPLACE_ME
+
+      - key: OWNER_OPEN_ID
+        scope: RUN_TIME
+        value: REPLACE_ME
+      - key: OWNER_NAME
+        scope: RUN_TIME
+        value: REPLACE_ME
+
+      # Optional; unset only produces a build warning.
+      - key: VITE_ANALYTICS_ENDPOINT
+        scope: BUILD_TIME
+        value: ""
+      - key: VITE_ANALYTICS_WEBSITE_ID
+        scope: BUILD_TIME
+        value: ""
