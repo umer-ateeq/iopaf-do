@@ -292,9 +292,14 @@ class SDKServer {
     // The users table is an audit record written at sign-in by the record-user
     // Edge Function; it is not this host's source of truth for a request. The
     // session cookie is a JWT we signed ourselves and have already verified, so
-    // when no database is configured on this host we serve the request from the
-    // session claims instead of failing it.
-    if (!user && !process.env.DATABASE_URL) {
+    // a missing row is never a reason to reject the caller.
+    //
+    // This deliberately does NOT test process.env.DATABASE_URL. Keying off the
+    // variable's presence meant that a DATABASE_URL which was set but unusable
+    // — a placeholder, a rotated password, an unreachable host — skipped the
+    // fallback and took authentication down for everyone. Availability of the
+    // row is what matters, not whether someone configured a string.
+    if (!user) {
       return {
         id: -1,
         openId: sessionUserId,

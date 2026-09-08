@@ -51,11 +51,6 @@ services:
         scope: RUN_TIME
         value: "8080"
 
-      # Managed MySQL below is bound automatically via this reference.
-      - key: DATABASE_URL
-        scope: RUN_AND_BUILD_TIME
-        value: ${iopaf-db.DATABASE_URL}
-
       # Session signing secret. Set as an encrypted secret in the DO dashboard,
       # or via: doctl apps update <id> --spec (with type: SECRET)
       - key: JWT_SECRET

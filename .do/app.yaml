@@ -18,6 +18,12 @@ region: fra                      # pick the region nearest your assessors
 domains:
   - domain: iopaf.ovx-ai.com
     type: PRIMARY
+  # Product domain. ALIAS serves the same app on a second hostname;
+  # promote it to PRIMARY once its certificate is issued and it resolves.
+  - domain: iopaf.net
+    type: ALIAS
+  - domain: www.iopaf.net
+    type: ALIAS
 
 services:
   - name: web
@@ -78,14 +84,6 @@ services:
       - key: VITE_SUPABASE_PUBLISHABLE_KEY
         scope: BUILD_TIME
         value: sb_publishable_flvh9YNP_dKfDQiV8iw7Mw_qQ6xyv4-
-
-      # Postgres connection string from Supabase → Project Settings → Database.
-      # Contains the database password, so it must be set as an encrypted
-      # secret. Login cannot work until this is populated.
-      - key: DATABASE_URL
-        scope: RUN_AND_BUILD_TIME
-        type: SECRET
-        value: REPLACE_ME_SUPABASE_POSTGRES_CONNECTION_STRING
 
       # ---- Auth provider ----
       # These were Manus-issued and do NOT work off-Manus. Until
