@@ -78,3 +78,64 @@ describe("MarkdownLite", () => {
     expect(() => render("")).not.toThrow();
   });
 });
+
+describe("MarkdownLite nested lists", () => {
+  // Observed in production: the Copilot answers with a numbered outline whose
+  // items carry indented sub-bullets. Treating each sub-bullet as a new list
+  // split the outline into one <ol> per item, so the numbering restarted at
+  // "1." on every line.
+  const outline = [
+    "1. Defined maturity levels",
+    "   - Each capability has discrete levels",
+    "   - Levels are ordered",
+    "2. Evidence requirements per level",
+    "   - Assessors expect specific artifacts",
+    "3. Evidence gating",
+  ].join("\n");
+
+  it("keeps one ordered list instead of one per item", () => {
+    expect(render(outline).match(/<ol>/g) ?? []).toHaveLength(1);
+  });
+
+  it("keeps all three numbered items at the top level", () => {
+    // Assert the exact shape: counting </li><li> transitions would also match
+    // the nested items, which is what made an earlier version of this test lie.
+    expect(render(outline)).toContain(
+      "<ol>" +
+        "<li>Defined maturity levels<ul>" +
+          "<li>Each capability has discrete levels</li>" +
+          "<li>Levels are ordered</li>" +
+        "</ul></li>" +
+        "<li>Evidence requirements per level<ul>" +
+          "<li>Assessors expect specific artifacts</li>" +
+        "</ul></li>" +
+        "<li>Evidence gating</li>" +
+      "</ol>"
+    );
+  });
+
+  it("nests the sub-bullets inside their parent item", () => {
+    const html = render(outline);
+    expect(html).toMatch(/<li>Defined maturity levels<ul>/);
+    expect(html).toContain("<li>Each capability has discrete levels</li>");
+    expect(html).toContain("<li>Levels are ordered</li>");
+  });
+
+  it("survives a blank line between items without restarting", () => {
+    const html = render("1. first\n\n2. second\n\n3. third");
+    expect(html.match(/<ol>/g) ?? []).toHaveLength(1);
+    expect((html.match(/<li>/g) ?? []).length).toBe(3);
+  });
+
+  it("starts a new list when prose separates two lists", () => {
+    const html = render("- a\n- b\n\nSome prose here\n\n- c");
+    expect((html.match(/<ul>/g) ?? []).length).toBe(2);
+    expect(html).toContain("<p>Some prose here</p>");
+  });
+
+  it("returns to the outer list after a nested block", () => {
+    const html = render("1. one\n   - inner\n2. two");
+    expect(html.match(/<ol>/g) ?? []).toHaveLength(1);
+    expect(html).toContain("<li>two</li>");
+  });
+});

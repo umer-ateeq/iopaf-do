@@ -70,15 +70,33 @@ function Inline({ text }: { text: string }) {
 }
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
-const BULLET = /^\s*[-*+]\s+(.*)$/;
-const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/;
+/** Captures indentation so a sub-bullet becomes a child rather than a new list. */
+const BULLET = /^(\s*)[-*+]\s+(.*)$/;
+const NUMBERED = /^(\s*)(\d+)[.)]\s+(.*)$/;
+const RULE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;
+
+type ListNode = { ordered: boolean; indent: number; items: ItemNode[] };
+type ItemNode = { text: string; child?: ListNode };
+
+/** Render a list and any nested list inside its items. */
+function renderList(list: ListNode, key: string): ReactNode {
+  const items = list.items.map((item, i) => (
+    <li key={i}>
+      <Inline text={item.text} />
+      {item.child ? renderList(item.child, `${key}-${i}`) : null}
+    </li>
+  ));
+  return list.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
+}
 
 export function MarkdownLite({ children }: { children: string }) {
   const lines = children.replace(/\r\n/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
 
   let paragraph: string[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
+  // Open lists from outermost to innermost, so an indented marker can attach
+  // to the item above it instead of starting a sibling list.
+  let stack: ListNode[] = [];
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -91,25 +109,56 @@ export function MarkdownLite({ children }: { children: string }) {
   };
 
   const flushList = () => {
-    if (!list) return;
-    const items = list.items.map((item, i) => (
-      <li key={i}>
-        <Inline text={item} />
-      </li>
-    ));
-    blocks.push(
-      list.ordered ? (
-        <ol key={`l${blocks.length}`}>{items}</ol>
-      ) : (
-        <ul key={`l${blocks.length}`}>{items}</ul>
-      )
-    );
-    list = null;
+    if (stack.length) blocks.push(renderList(stack[0], `l${blocks.length}`));
+    stack = [];
   };
 
   const flushAll = () => {
     flushParagraph();
     flushList();
+  };
+
+  const addListItem = (indent: number, ordered: boolean, text: string) => {
+    flushParagraph();
+
+    // Close any list indented deeper than this marker.
+    while (stack.length > 1 && indent < stack[stack.length - 1].indent) stack.pop();
+
+    const current = stack[stack.length - 1];
+
+    if (!current) {
+      stack = [{ ordered, indent, items: [{ text }] }];
+      return;
+    }
+
+    // Deeper than the open list: nest inside its most recent item.
+    if (indent > current.indent + 1) {
+      const parentItem = current.items[current.items.length - 1];
+      if (parentItem.child && parentItem.child.ordered === ordered) {
+        parentItem.child.items.push({ text });
+        stack.push(parentItem.child);
+      } else {
+        const child: ListNode = { ordered, indent, items: [{ text }] };
+        parentItem.child = child;
+        stack.push(child);
+      }
+      return;
+    }
+
+    // Same level. A different marker type at the top level starts a new list;
+    // nested, it replaces the child so numbering does not restart mid-list.
+    if (current.ordered !== ordered) {
+      if (stack.length === 1) {
+        flushList();
+        stack = [{ ordered, indent, items: [{ text }] }];
+      } else {
+        stack.pop();
+        addListItem(indent, ordered, text);
+      }
+      return;
+    }
+
+    current.items.push({ text });
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -130,7 +179,9 @@ export function MarkdownLite({ children }: { children: string }) {
     }
 
     if (!line.trim()) {
-      flushAll();
+      // A blank line inside a list is a loose list, not the end of it; only
+      // prose is flushed so numbering survives the gap.
+      flushParagraph();
       continue;
     }
 
@@ -147,28 +198,29 @@ export function MarkdownLite({ children }: { children: string }) {
       continue;
     }
 
-    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
+    if (RULE.test(line)) {
       flushAll();
       blocks.push(<hr key={`r${blocks.length}`} />);
       continue;
     }
 
     const numbered = NUMBERED.exec(line);
-    const bullet = BULLET.exec(line);
-    if (numbered || bullet) {
-      flushParagraph();
-      const ordered = Boolean(numbered);
-      if (!list || list.ordered !== ordered) {
-        flushList();
-        list = { ordered, items: [] };
-      }
-      list.items.push(numbered ? numbered[2] : bullet![1]);
+    if (numbered) {
+      addListItem(numbered[1].length, true, numbered[3]);
       continue;
     }
 
-    // A plain line directly under a list item continues that item.
-    if (list && /^\s{2,}\S/.test(line)) {
-      list.items[list.items.length - 1] += ` ${line.trim()}`;
+    const bullet = BULLET.exec(line);
+    if (bullet) {
+      addListItem(bullet[1].length, false, bullet[2]);
+      continue;
+    }
+
+    // An indented plain line under a list item continues that item's text.
+    if (stack.length && /^\s{2,}\S/.test(line)) {
+      const open = stack[stack.length - 1];
+      const item = open.items[open.items.length - 1];
+      item.text += ` ${line.trim()}`;
       continue;
     }
 
