@@ -3,6 +3,13 @@ import { sdk } from "./_core/sdk";
 
 type AuthenticateRequest = (req: Request) => Promise<unknown>;
 
+/**
+ * How long a signed-in browser may reuse a gated asset before this guard has
+ * to authorise it again. Short on purpose — long enough to cover a working
+ * session, short enough that revoked access takes effect promptly.
+ */
+export const PORTAL_ASSET_MAX_AGE = 600;
+
 export function createPortalGuard(
   authenticate: AuthenticateRequest = req => sdk.authenticateRequest(req)
 ) {
@@ -13,19 +20,26 @@ export function createPortalGuard(
   ) {
     try {
       await authenticate(req);
-      // Two properties, both required.
+
+      // "private" is the security-critical half: no shared cache may store a
+      // gated asset, so Cloudflare can never hand the engine to an
+      // unauthenticated visitor and this guard stays the only way in. That
+      // holds for every value of PORTAL_ASSET_MAX_AGE below.
       //
-      // "private" keeps every shared cache out, so Cloudflare can never hand a
-      // gated asset to an unauthenticated visitor. "no-cache" does not mean
-      // "do not store" — it means "revalidate before reuse" — so the browser
-      // must still ask this server every time, and this guard runs and
-      // authorizes every one of those requests. Access control is therefore
-      // exactly as strict as the previous no-store.
-      //
-      // What it buys: app.html is the 1.67 MB assessment engine, byte-identical
-      // for every user. Under no-store the browser re-downloaded all of it
-      // from Frankfurt on each portal entry; now it revalidates and gets a 304.
-      res.setHeader("Cache-Control", "private, no-cache");
+      // The lifetime is the performance half. app.html is the 1.67 MB
+      // assessment engine, byte-identical for every user and carrying no
+      // per-user data; under no-store every portal entry re-downloaded all of
+      // it from Frankfurt. Plain revalidation cannot help here: the platform
+      // normalises file mtimes to 1980 and Cloudflare strips the weak ETag when
+      // it re-compresses, so a conditional request comes back 200, not 304 —
+      // measured against production. A bounded max-age is what actually works,
+      // and it is deliberately short: the browser reuses the engine across a
+      // working session, and re-authorises through this guard every ten
+      // minutes.
+      res.setHeader(
+        "Cache-Control",
+        `private, max-age=${PORTAL_ASSET_MAX_AGE}, must-revalidate`
+      );
       res.setHeader("X-Robots-Tag", "noindex, nofollow");
       next();
     } catch {

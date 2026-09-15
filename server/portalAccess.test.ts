@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { NextFunction, Request, Response } from "express";
-import { createPortalGuard } from "./portalAccess";
+import { createPortalGuard, PORTAL_ASSET_MAX_AGE } from "./portalAccess";
 
 function responseDouble() {
   return {
@@ -63,12 +63,22 @@ describe("protected IOPAF engine asset", () => {
       expect(directives.some(d => d.startsWith("s-maxage"))).toBe(false);
     });
 
-    it("forces the browser to revalidate, so the guard authorizes every request", async () => {
+    it("bounds how long a browser may reuse it before the guard runs again", async () => {
       const directives = await authorizedHeader();
-      const revalidates = ["no-cache", "no-store", "must-revalidate", "max-age=0"].some(d =>
+      const alwaysRevalidates = ["no-cache", "no-store", "max-age=0"].some(d =>
         directives.includes(d)
       );
-      expect(revalidates).toBe(true);
+      if (alwaysRevalidates) return;
+
+      // Otherwise the window must be explicit, finite and short, so revoked
+      // access takes effect promptly. Never immutable, never open-ended.
+      const maxAge = directives
+        .map(d => /^max-age=(\d+)$/.exec(d)?.[1])
+        .find(Boolean);
+      expect(maxAge, "a gated asset needs an explicit lifetime").toBeDefined();
+      expect(Number(maxAge)).toBeGreaterThan(0);
+      expect(Number(maxAge)).toBeLessThanOrEqual(PORTAL_ASSET_MAX_AGE);
+      expect(directives).not.toContain("immutable");
     });
   });
 
