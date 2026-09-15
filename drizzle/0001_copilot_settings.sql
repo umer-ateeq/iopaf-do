@@ -34,12 +34,31 @@ ALTER TABLE "copilotSettings" ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 
 -- Postgres has no ON UPDATE CURRENT_TIMESTAMP; a trigger maintains updatedAt.
-CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
+--
+-- public.set_updated_at() already exists in the deployed database, where it
+-- backs the users table trigger, and it is hardened with SET search_path TO ''.
+-- CREATE OR REPLACE would overwrite that hardening, so create it only when it
+-- is genuinely absent (a fresh environment) and otherwise reuse it as-is.
+DO $do$
 BEGIN
-  NEW."updatedAt" = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'set_updated_at'
+  ) THEN
+    CREATE FUNCTION public.set_updated_at() RETURNS trigger
+      LANGUAGE plpgsql
+      SET search_path TO ''
+      AS $fn$
+        BEGIN
+          NEW."updatedAt" = clock_timestamp();
+          RETURN NEW;
+        END;
+      $fn$;
+  END IF;
+END
+$do$;
 
 --> statement-breakpoint
 
@@ -49,4 +68,4 @@ DROP TRIGGER IF EXISTS "copilotSettings_set_updated_at" ON "copilotSettings";
 
 CREATE TRIGGER "copilotSettings_set_updated_at"
   BEFORE UPDATE ON "copilotSettings"
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
