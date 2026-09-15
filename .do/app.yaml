@@ -105,3 +105,22 @@ services:
       - key: OWNER_NAME
         scope: RUN_TIME
         value: REPLACE_ME
+
+      # ---- AI Copilot ----
+      # One provider account serves every signed-in user. Server-only: it is
+      # never sent to the browser, stored in the database or written into the
+      # assessment file. Set it as an encrypted secret in the dashboard.
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_ME_OPENAI_API_KEY
+
+      # Optional. Point at an OpenAI-compatible gateway instead of OpenAI.
+      # - key: OPENAI_BASE_URL
+      #   scope: RUN_TIME
+      #   value: https://api.openai.com/v1
+
+      # Fallback model for users who have never opened Copilot Setup.
+      - key: COPILOT_DEFAULT_MODEL
+        scope: RUN_TIME
+        value: gpt-4o-mini
