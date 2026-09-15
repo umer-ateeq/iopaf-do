@@ -145,12 +145,31 @@ export type SyncStatus =
   | { state: "saved"; at: string }
   | { state: "restored"; at: string }
   | { state: "too-large"; bytes: number; limit: number }
+  | { state: "conflict" }
   | { state: "error"; message: string };
+
+/**
+ * Outcome of a conditional write. "conflict" means the stored document moved
+ * between reading it and writing, so this document is no longer a safe
+ * replacement for it.
+ */
+export type SaveOutcome = "applied" | "conflict";
 
 /** The subset of the Supabase client this module uses. */
 export type AssessmentTable = {
   loadLatest(): Promise<RemoteRecord | null>;
-  save(state: AssessmentState, savedAt: string, stateVersion: number): Promise<void>;
+  /**
+   * Write the document, but only if the stored one is still what was read.
+   * `expectedSavedAt` is the savedAt observed a moment ago, or null when no
+   * row was seen at all. Implementations must not overwrite unconditionally:
+   * that is what silently destroys another device's work.
+   */
+  save(
+    state: AssessmentState,
+    savedAt: string,
+    stateVersion: number,
+    expectedSavedAt: string | null
+  ): Promise<SaveOutcome>;
 };
 
 export type SyncDeps = {
@@ -162,7 +181,7 @@ export type SyncDeps = {
 /**
  * Run one reconciliation pass. Returns what it did, so a caller can report it.
  */
-export async function syncOnce(deps: SyncDeps): Promise<Reconciliation> {
+export async function syncOnce(deps: SyncDeps, attempt = 0): Promise<Reconciliation> {
   const { storage, table, onStatus } = deps;
   const local = parseState(storage.getItem(ENGINE_STATE_KEY));
 
@@ -187,11 +206,24 @@ export async function syncOnce(deps: SyncDeps): Promise<Reconciliation> {
     }
     onStatus?.({ state: "syncing" });
     try {
-      await table.save(
+      const outcome = await table.save(
         local,
         typeof local.savedAt === "string" ? local.savedAt : new Date().toISOString(),
-        typeof local.v === "number" ? local.v : 0
+        typeof local.v === "number" ? local.v : 0,
+        remote?.savedAt ?? null
       );
+
+      if (outcome === "conflict") {
+        // Another device wrote between the read and the write, so this
+        // document is no longer a safe replacement. Re-read and decide again
+        // rather than forcing it. One retry only: a document that keeps
+        // losing the race is being actively edited elsewhere, and the right
+        // answer then is to leave it alone.
+        if (attempt === 0) return syncOnce(deps, attempt + 1);
+        onStatus?.({ state: "conflict" });
+        return { action: "none", reason: "the backup is being written elsewhere" };
+      }
+
       onStatus?.({ state: "saved", at: new Date().toISOString() });
     } catch (error) {
       onStatus?.({

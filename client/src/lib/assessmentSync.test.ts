@@ -12,6 +12,7 @@ import {
   syncOnce,
   type AssessmentState,
   type RemoteRecord,
+  type AssessmentTable,
   type StorageLike,
 } from "./assessmentSync";
 
@@ -189,7 +190,7 @@ describe("applyRestore", () => {
 describe("syncOnce", () => {
   const table = (remote: RemoteRecord | null) => ({
     loadLatest: vi.fn().mockResolvedValue(remote),
-    save: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn().mockResolvedValue("applied" as const),
   });
 
   it("saves local work when the server has none", async () => {
@@ -201,7 +202,8 @@ describe("syncOnce", () => {
     const result = await syncOnce({ storage, table: t, onStatus: s => statuses.push(s.state) });
 
     expect(result.action).toBe("push");
-    expect(t.save).toHaveBeenCalledWith(local, "2026-09-15T10:00:00Z", 9);
+    // expectedSavedAt is null because no row was seen: the write must create one.
+    expect(t.save).toHaveBeenCalledWith(local, "2026-09-15T10:00:00Z", 9, null);
     expect(statuses).toEqual(["syncing", "saved"]);
   });
 
@@ -253,7 +255,7 @@ describe("syncOnce", () => {
     const storage = memoryStorage({ [ENGINE_STATE_KEY]: JSON.stringify(local) });
     const t = {
       loadLatest: vi.fn().mockResolvedValue(null),
-      save: vi.fn().mockRejectedValue(new Error("row level security")),
+      save: vi.fn<AssessmentTable["save"]>().mockRejectedValue(new Error("row level security")),
     };
     const statuses: unknown[] = [];
 
@@ -271,5 +273,59 @@ describe("syncOnce", () => {
     expect(result.action).toBe("none");
     expect(t.save).not.toHaveBeenCalled();
     expect(storage.getItem(ENGINE_STATE_KEY)).toBeNull();
+  });
+});
+
+describe("syncOnce concurrency", () => {
+  const local = withAnswers("2026-09-15T12:00:00Z", { Q1: 1, Q2: 2 });
+
+  it("passes the observed savedAt so the write cannot clobber a newer one", async () => {
+    const storage = memoryStorage({ [ENGINE_STATE_KEY]: JSON.stringify(local) });
+    const remote = remoteOf(withAnswers("2026-09-15T11:00:00Z"));
+    const t = {
+      loadLatest: vi.fn().mockResolvedValue(remote),
+      save: vi.fn().mockResolvedValue("applied" as const),
+    };
+
+    await syncOnce({ storage, table: t });
+
+    expect(t.save).toHaveBeenCalledWith(local, "2026-09-15T12:00:00Z", 9, "2026-09-15T11:00:00Z");
+  });
+
+  it("re-reads and re-decides when the write loses the race", async () => {
+    // The stale-device case: this browser looks newer, but another device
+    // wrote in between. The second read shows work this document never had,
+    // so the right outcome is to restore, not to force the overwrite.
+    const storage = memoryStorage({ [ENGINE_STATE_KEY]: JSON.stringify(local) });
+    const winner = remoteOf(withAnswers("2026-09-15T13:00:00Z", { Q1: 1, Q2: 2, Q3: 3 }));
+    const loadLatest = vi
+      .fn()
+      .mockResolvedValueOnce(remoteOf(withAnswers("2026-09-15T11:00:00Z")))
+      .mockResolvedValueOnce(winner);
+    const save = vi.fn().mockResolvedValue("conflict" as const);
+
+    const result = await syncOnce({ storage, table: { loadLatest, save } });
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(loadLatest).toHaveBeenCalledTimes(2);
+    expect(result.action).toBe("restore");
+    expect(parseState(storage.getItem(ENGINE_STATE_KEY))?.answers).toEqual({ Q1: 1, Q2: 2, Q3: 3 });
+    // The document it displaced is still on disk.
+    expect(parseState(storage.getItem(REPLACED_BACKUP_KEY))?.answers).toEqual({ Q1: 1, Q2: 2 });
+  });
+
+  it("gives up rather than looping when the race keeps being lost", async () => {
+    const storage = memoryStorage({ [ENGINE_STATE_KEY]: JSON.stringify(local) });
+    const loadLatest = vi.fn().mockResolvedValue(remoteOf(withAnswers("2026-09-15T11:00:00Z")));
+    const save = vi.fn().mockResolvedValue("conflict" as const);
+    const statuses: unknown[] = [];
+
+    const result = await syncOnce({ storage, table: { loadLatest, save }, onStatus: s => statuses.push(s) });
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(result.action).toBe("none");
+    expect(statuses.at(-1)).toMatchObject({ state: "conflict" });
+    // Local work is untouched by a lost race.
+    expect(parseState(storage.getItem(ENGINE_STATE_KEY))?.answers).toEqual({ Q1: 1, Q2: 2 });
   });
 });

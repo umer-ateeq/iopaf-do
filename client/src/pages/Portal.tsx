@@ -143,6 +143,7 @@ export default function Portal() {
       case "restored": return "Restored from backup";
       case "too-large":
         return `Too large to back up (${(backup.status.bytes / 1048576).toFixed(1)} MB of ${(backup.status.limit / 1048576).toFixed(0)} MB)`;
+      case "conflict": return "Open on another device";
       case "error": return "Backup unavailable";
       default: return null;
     }
@@ -177,7 +178,9 @@ export default function Portal() {
               title={
                 backup.status.state === "error"
                   ? "This assessment is still saved in this browser, but could not be copied to your account."
-                  : backup.status.state === "too-large"
+                  : backup.status.state === "conflict"
+                    ? "This assessment is being edited in another browser or device. Nothing was overwritten, and every version is kept in your account."
+                    : backup.status.state === "too-large"
                     ? "Export the assessment to keep a copy. Evidence attachments are what usually push it past the limit."
                     : "Your assessment is copied to your IOPAF account so it survives this browser."
               }

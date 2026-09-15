@@ -51,16 +51,32 @@ export function createSupabaseAssessmentTable(
       } satisfies RemoteRecord;
     },
 
-    async save(state, savedAt, stateVersion) {
+    async save(state, savedAt, stateVersion, expectedSavedAt) {
       // userId is sent explicitly and RLS checks it against auth.uid(), so a
       // tampered value is rejected by Postgres rather than trusted here.
-      const { error } = await client
+      const row = { userId, slot: SLOT, state, savedAt, stateVersion };
+
+      if (expectedSavedAt === null) {
+        // No row was seen, so this must create one. A unique violation means
+        // another device inserted first — a conflict, not a failure.
+        const { error } = await client.from(TABLE).insert(row);
+        if (!error) return "applied";
+        if (error.code === "23505") return "conflict";
+        throw new Error(error.message);
+      }
+
+      // Conditional on the savedAt that was read. If another device has
+      // written since, this matches nothing and no data is destroyed.
+      const { data, error } = await client
         .from(TABLE)
-        .upsert(
-          { userId, slot: SLOT, state, savedAt, stateVersion },
-          { onConflict: "userId,slot" }
-        );
+        .update(row)
+        .eq("userId", userId)
+        .eq("slot", SLOT)
+        .eq("savedAt", expectedSavedAt)
+        .select("id");
+
       if (error) throw new Error(error.message);
+      return data && data.length > 0 ? "applied" : "conflict";
     },
   };
 }
