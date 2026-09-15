@@ -9,7 +9,11 @@ import {
   type Message as LlmMessage,
 } from "../_core/llm";
 import { ENV } from "../_core/env";
-import { getCopilotSettingsByUserId, upsertCopilotSettings } from "../db";
+import {
+  getCopilotSettingsByOpenId,
+  isSettingsStoreAvailable,
+  upsertCopilotSettings,
+} from "../db";
 
 const pageSchema = z.enum(["setup", "journey", "standards", "assess", "controls", "results", "reports", "framework", "home", "unknown"]);
 const streamSchema = z.enum(["sdlc", "tmmi", "operations", "iam", "none"]);
@@ -149,11 +153,18 @@ export function trimConversation(messages: CopilotTurn[]): CopilotTurn[] {
 }
 
 const RATE_LIMIT_PER_MINUTE = 12;
-const rateBuckets = new Map<number, number[]>();
 
-function enforceRateLimit(userId: number) {
+/**
+ * Keyed on openId, not users.id. Without a reachable users row every caller
+ * authenticates as the synthetic id -1, which turned this per-user limit into
+ * a single platform-wide bucket: twelve questions from any mix of users locked
+ * out everyone. openId comes from the verified session JWT and is unique.
+ */
+const rateBuckets = new Map<string, number[]>();
+
+export function enforceRateLimit(openId: string) {
   const now = Date.now();
-  const recent = (rateBuckets.get(userId) || []).filter(t => now - t < 60_000);
+  const recent = (rateBuckets.get(openId) || []).filter(t => now - t < 60_000);
   if (recent.length >= RATE_LIMIT_PER_MINUTE) {
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
@@ -161,7 +172,12 @@ function enforceRateLimit(userId: number) {
     });
   }
   recent.push(now);
-  rateBuckets.set(userId, recent);
+  rateBuckets.set(openId, recent);
+}
+
+/** Test seam: the buckets are process-global. */
+export function resetRateLimits() {
+  rateBuckets.clear();
 }
 
 function defaultSettings() {
@@ -173,11 +189,14 @@ function defaultSettings() {
   };
 }
 
-async function settingsFor(userId: number) {
-  return (await getCopilotSettingsByUserId(userId)) || defaultSettings();
+async function settingsFor(openId: string) {
+  return (await getCopilotSettingsByOpenId(openId)) || defaultSettings();
 }
 
-function publicSettings(settings: Awaited<ReturnType<typeof settingsFor>>) {
+function publicSettings(
+  settings: Awaited<ReturnType<typeof settingsFor>>,
+  storable: boolean
+) {
   return {
     enabled: settings.enabled,
     model: settings.model,
@@ -185,6 +204,8 @@ function publicSettings(settings: Awaited<ReturnType<typeof settingsFor>>) {
     includeRemediation: settings.includeRemediation,
     /** Lets the UI explain itself when the server has no credential. */
     serverConfigured: isLLMConfigured(),
+    /** False when no settings store is configured, so Save cannot work. */
+    settingsStorable: storable,
   };
 }
 
@@ -268,7 +289,7 @@ function assertConfigured() {
 
 export const copilotRouter = router({
   settings: protectedProcedure.query(async ({ ctx }) =>
-    publicSettings(await settingsFor(ctx.user.id))
+    publicSettings(await settingsFor(ctx.user.openId), await isSettingsStoreAvailable())
   ),
 
   models: protectedProcedure.query(async () => {
@@ -290,13 +311,26 @@ export const copilotRouter = router({
   }),
 
   saveSettings: protectedProcedure.input(settingsInput).mutation(async ({ ctx, input }) => {
-    const saved = await upsertCopilotSettings(ctx.user.id, {
-      enabled: input.enabled,
-      model: input.model,
-      includeCurrentResponse: input.includeCurrentResponse,
-      includeRemediation: input.includeRemediation,
-    });
-    return publicSettings(saved || defaultSettings());
+    try {
+      const saved = await upsertCopilotSettings(ctx.user.openId, {
+        enabled: input.enabled,
+        model: input.model,
+        includeCurrentResponse: input.includeCurrentResponse,
+        includeRemediation: input.includeRemediation,
+      });
+      return publicSettings(saved || defaultSettings(), true);
+    } catch (error) {
+      // No settings store configured. Say so plainly: the Copilot still
+      // answers on the server defaults, only the preference cannot persist.
+      if (error instanceof Error && error.message === "COPILOT_SETTINGS_STORE_UNAVAILABLE") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Copilot preferences cannot be saved: this server has no settings database configured. The Copilot still answers using the platform defaults.",
+        });
+      }
+      throw error;
+    }
   }),
 
   testConnection: protectedProcedure.input(settingsInput).mutation(async ({ input }) => {
@@ -314,9 +348,9 @@ export const copilotRouter = router({
 
   chat: protectedProcedure.input(chatInputSchema).mutation(async ({ ctx, input }) => {
       assertConfigured();
-      enforceRateLimit(ctx.user.id);
+      enforceRateLimit(ctx.user.openId);
 
-      const settings = await settingsFor(ctx.user.id);
+      const settings = await settingsFor(ctx.user.openId);
       if (!settings.enabled) {
         throw new TRPCError({
           code: "FORBIDDEN",

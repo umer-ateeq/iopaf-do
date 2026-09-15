@@ -39,11 +39,18 @@ export type InsertUser = typeof users.$inferInsert;
 export const copilotSettings = pgTable("copilotSettings", {
   /** Surrogate primary key. Identity column managed by the database. */
   id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
-  /** One settings row per user. Removed with the user. */
-  userId: integer("userId")
-    .notNull()
-    .unique()
-    .references(() => users.id, { onDelete: "cascade" }),
+  /**
+   * Keyed on the auth provider's stable identifier rather than users.id.
+   *
+   * The users row is an audit record written by the record-user Edge
+   * Function, and authenticateRequest deliberately serves a request from the
+   * verified session claims when that row is unavailable — substituting a
+   * synthetic id of -1. Keying on that id would collapse every user onto one
+   * settings row, and a foreign key to it would reject the save outright.
+   * openId comes from the session JWT this server signed, so it is always
+   * present and always unique to one user.
+   */
+  openId: varchar("openId", { length: 64 }).notNull().unique(),
   enabled: boolean("enabled").default(true).notNull(),
   model: varchar("model", { length: 255 }).default("gpt-5-mini").notNull(),
   /** Allow current ratings, evidence summaries and risk values into the prompt. */
