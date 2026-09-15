@@ -1,6 +1,11 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { InsertUser, users } from "../drizzle/schema";
+import {
+  copilotSettings,
+  InsertCopilotSetting,
+  InsertUser,
+  users,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,6 +94,42 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getCopilotSettingsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get Copilot settings: database not available");
+    return undefined;
+  }
+
+  const result = await db
+    .select()
+    .from(copilotSettings)
+    .where(eq(copilotSettings.userId, userId))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertCopilotSettings(
+  userId: number,
+  settings: Omit<InsertCopilotSetting, "id" | "userId" | "createdAt" | "updatedAt">
+) {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Copilot settings cannot be saved while the database is unavailable");
+  }
+
+  const values: InsertCopilotSetting = { userId, ...settings };
+
+  // Postgres equivalent of MySQL's ON DUPLICATE KEY UPDATE.
+  await db.insert(copilotSettings).values(values).onConflictDoUpdate({
+    target: copilotSettings.userId,
+    set: settings,
+  });
+
+  return getCopilotSettingsByUserId(userId);
 }
 
 // TODO: add feature queries here as your schema grows.

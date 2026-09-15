@@ -1,14 +1,113 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useEffect, useRef } from "react";
+import { CopilotPanel, type CopilotContext } from "@/components/CopilotPanel";
+import { Bot } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { useEffect, useRef, useState } from "react";
+
+/**
+ * Settings the protected engine's own Setup card can save. The platform owns
+ * the provider credential, so this deliberately carries no endpoint or key.
+ */
+type NativeCopilotSettings = {
+  enabled: boolean;
+  model: string;
+  includeCurrentResponse: boolean;
+  includeRemediation: boolean;
+};
+
+type EngineCopilotMessage = {
+  type?: string;
+  context?: CopilotContext;
+  prompt?: string;
+  requestId?: string;
+  settings?: NativeCopilotSettings;
+};
 
 export default function Portal() {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const signingOutRef = useRef(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [copilotExpanded, setCopilotExpanded] = useState(false);
+  const [copilotView, setCopilotView] = useState<"chat" | "settings">("chat");
+  const [copilotContext, setCopilotContext] = useState<CopilotContext>({ page: "unknown", stream: "none", mode: "general" });
+  const [copilotPrompt, setCopilotPrompt] = useState<{ id: number; content: string } | null>(null);
+  const utils = trpc.useUtils();
+  const settingsQuery = trpc.copilot.settings.useQuery(undefined, { enabled: isAuthenticated });
+  const modelsQuery = trpc.copilot.models.useQuery(undefined, { enabled: isAuthenticated });
+  const nativeSave = trpc.copilot.saveSettings.useMutation();
+  const nativeTest = trpc.copilot.testConnection.useMutation();
+  const settingsRef = useRef(settingsQuery.data);
+  const modelsRef = useRef(modelsQuery.data);
+  const nativeSaveRef = useRef(nativeSave.mutateAsync);
+  const nativeTestRef = useRef(nativeTest.mutateAsync);
+  const postToEngine = (message: Record<string, unknown>) => iframeRef.current?.contentWindow?.postMessage(message, window.location.origin);
+  const sendSettings = () => {
+    if (settingsRef.current) postToEngine({ type: "IOPAF_COPILOT_SETTINGS_STATE", settings: settingsRef.current });
+  };
+  const sendModels = () => {
+    if (modelsRef.current) postToEngine({ type: "IOPAF_COPILOT_MODELS_STATE", models: modelsRef.current });
+  };
 
   useEffect(() => {
     if (loading || isAuthenticated || signingOutRef.current) return;
     window.location.replace("/?auth=required");
   }, [loading, isAuthenticated]);
+
+  useEffect(() => {
+    const receive = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as EngineCopilotMessage;
+      if (data.type === "IOPAF_COPILOT_CONTEXT" && data.context) setCopilotContext(data.context);
+      if (data.type === "IOPAF_COPILOT_OPEN") {
+        if (data.context) setCopilotContext(data.context);
+        setCopilotPrompt(data.prompt ? { id: Date.now(), content: data.prompt.slice(0, 4000) } : null);
+        setCopilotView("chat");
+        setCopilotOpen(true);
+      }
+      if (data.type === "IOPAF_COPILOT_SETTINGS") { setCopilotView("settings"); setCopilotOpen(true); }
+      if (data.type === "IOPAF_COPILOT_SETTINGS_REQUEST") { sendSettings(); sendModels(); }
+      if (data.type === "IOPAF_COPILOT_MODELS_REQUEST") {
+        const result = await modelsQuery.refetch();
+        if (result.data) {
+          modelsRef.current = result.data;
+          sendModels();
+        }
+      }
+      if ((data.type === "IOPAF_COPILOT_SAVE_SETTINGS" || data.type === "IOPAF_COPILOT_TEST_CONNECTION") && data.settings) {
+        try {
+          const result = data.type === "IOPAF_COPILOT_SAVE_SETTINGS"
+            ? await nativeSaveRef.current(data.settings)
+            : await nativeTestRef.current(data.settings);
+          if (data.type === "IOPAF_COPILOT_SAVE_SETTINGS" && result && "model" in result) {
+            settingsRef.current = result;
+            utils.copilot.settings.setData(undefined, result);
+            sendSettings();
+          }
+          postToEngine({ type: "IOPAF_COPILOT_SETTINGS_RESULT", requestId: data.requestId, action: data.type === "IOPAF_COPILOT_SAVE_SETTINGS" ? "save" : "test", ok: true, result });
+        } catch (error) {
+          postToEngine({ type: "IOPAF_COPILOT_SETTINGS_RESULT", requestId: data.requestId, action: data.type === "IOPAF_COPILOT_SAVE_SETTINGS" ? "save" : "test", ok: false, error: error instanceof Error ? error.message : "The secure Copilot request failed" });
+        }
+      }
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, []);
+
+  useEffect(() => {
+    settingsRef.current = settingsQuery.data;
+    sendSettings();
+  }, [settingsQuery.data]);
+
+  useEffect(() => {
+    modelsRef.current = modelsQuery.data;
+    sendModels();
+  }, [modelsQuery.data]);
+
+  useEffect(() => {
+    nativeSaveRef.current = nativeSave.mutateAsync;
+    nativeTestRef.current = nativeTest.mutateAsync;
+  }, [nativeSave.mutateAsync, nativeTest.mutateAsync]);
 
   const signOut = async () => {
     signingOutRef.current = true;
@@ -34,15 +133,28 @@ export default function Portal() {
         </a>
         <div className="portal-user">
           <span>{user?.name || user?.email || "Authenticated user"}</span>
+          <button className="portal-copilot-button" onClick={() => { setCopilotPrompt(null); setCopilotView("chat"); setCopilotOpen(true); }}><Bot aria-hidden="true" /> Ask IOPAF</button>
           <a href="/">Website</a>
           <button onClick={signOut}>Sign out</button>
         </div>
       </header>
       <iframe
+        ref={iframeRef}
         className="portal-frame"
         src="/app.html"
         title="IOPAF assessment portal"
         referrerPolicy="same-origin"
+        onLoad={() => { sendSettings(); sendModels(); }}
+      />
+      <CopilotPanel
+        open={copilotOpen}
+        expanded={copilotExpanded}
+        context={copilotContext}
+        initialView={copilotView}
+        onClose={() => { setCopilotOpen(false); setCopilotExpanded(false); }}
+        onExpandedChange={setCopilotExpanded}
+        onSettingsChanged={settings => iframeRef.current?.contentWindow?.postMessage({ type: "IOPAF_COPILOT_SETTINGS_STATE", settings }, window.location.origin)}
+        requestedPrompt={copilotPrompt}
       />
     </div>
   );
