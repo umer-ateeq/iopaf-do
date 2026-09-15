@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS "copilotSettings" (
 
 --> statement-breakpoint
 
+COMMENT ON TABLE "copilotSettings" IS
+  'Per-user AI Copilot preferences. Server-only: RLS enabled with no policies '
+  'so PostgREST clients cannot read it. Holds no provider credential.';
+
+--> statement-breakpoint
+
+-- Match the users table: reachable only through the server's own connection,
+-- never through the PostgREST API with a publishable key.
+ALTER TABLE "copilotSettings" ENABLE ROW LEVEL SECURITY;
+
+--> statement-breakpoint
+
 -- Postgres has no ON UPDATE CURRENT_TIMESTAMP; a trigger maintains updatedAt.
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
 BEGIN
