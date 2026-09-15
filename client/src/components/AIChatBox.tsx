@@ -57,6 +57,9 @@ export type AIChatBoxProps = {
    * Click to send directly
    */
   suggestedPrompts?: string[];
+
+  /** Optional externally requested draft, identified so the same text can be requested again. */
+  inputSeed?: { id: number; content: string } | null;
 };
 
 /**
@@ -119,12 +122,19 @@ export function AIChatBox({
   height = "600px",
   emptyStateMessage = "Start a conversation with AI",
   suggestedPrompts,
+  inputSeed,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputAreaRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!inputSeed) return;
+    setInput(inputSeed.content);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [inputSeed?.id]);
 
   // Filter out system messages
   const displayMessages = messages.filter((msg) => msg.role !== "system");
