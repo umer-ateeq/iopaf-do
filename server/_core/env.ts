@@ -13,7 +13,7 @@ export const ENV = {
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
   /** Fallback when a user has no saved model. Must exist in the account's catalogue. */
-  copilotDefaultModel: process.env.COPILOT_DEFAULT_MODEL ?? "gpt-4o-mini",
+  copilotDefaultModel: process.env.COPILOT_DEFAULT_MODEL ?? "gpt-5-mini",
   // Supabase Auth replaces the Manus OAuth service. The publishable
   // (anon) key is safe to hold server-side; it only identifies the project.
   supabaseUrl: process.env.SUPABASE_URL ?? "",

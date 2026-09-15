@@ -45,7 +45,7 @@ export const copilotSettings = pgTable("copilotSettings", {
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").default(true).notNull(),
-  model: varchar("model", { length: 255 }).default("gpt-4o-mini").notNull(),
+  model: varchar("model", { length: 255 }).default("gpt-5-mini").notNull(),
   /** Allow current ratings, evidence summaries and risk values into the prompt. */
   includeCurrentResponse: boolean("includeCurrentResponse").default(false).notNull(),
   /** Allow the active remediation text into the prompt. */

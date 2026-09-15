@@ -34,7 +34,7 @@ What remains is the enable switch, the model list and the two privacy toggles.
 |---|---|---|
 | `OPENAI_API_KEY` | `RUN_TIME`, **secret** | The one provider credential. Server-only. |
 | `OPENAI_BASE_URL` | `RUN_TIME`, optional | Defaults to `https://api.openai.com/v1`. Point at any OpenAI-compatible gateway. |
-| `COPILOT_DEFAULT_MODEL` | `RUN_TIME`, optional | Model for users who have never opened Copilot Setup. Defaults to `gpt-4o-mini`. |
+| `COPILOT_DEFAULT_MODEL` | `RUN_TIME`, optional | Model for users who have never opened Copilot Setup. Defaults to `gpt-5-mini`. |
 | `JWT_SECRET` | `RUN_TIME`, secret | Already required for sessions. |
 | `DATABASE_URL` | `RUN_TIME` | Already required. The Copilot stores preferences in Postgres. |
 

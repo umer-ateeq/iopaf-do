@@ -102,4 +102,4 @@ databases:
       # Fallback model for users who have never opened Copilot Setup.
       - key: COPILOT_DEFAULT_MODEL
         scope: RUN_TIME
-        value: gpt-4o-mini
+        value: gpt-5-mini

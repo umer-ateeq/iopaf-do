@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS "copilotSettings" (
   "userId"                 integer NOT NULL UNIQUE
                              REFERENCES "users"("id") ON DELETE CASCADE,
   "enabled"                boolean NOT NULL DEFAULT true,
-  "model"                  varchar(255) NOT NULL DEFAULT 'gpt-4o-mini',
+  "model"                  varchar(255) NOT NULL DEFAULT 'gpt-5-mini',
   "includeCurrentResponse" boolean NOT NULL DEFAULT false,
   "includeRemediation"     boolean NOT NULL DEFAULT false,
   "createdAt"              timestamptz NOT NULL DEFAULT now(),

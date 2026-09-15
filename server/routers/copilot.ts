@@ -174,7 +174,11 @@ export function buildCopilotSystemPrompt(context: string) {
 
 /** Chat-capable models only: the catalogue also lists embeddings, audio and image endpoints. */
 const CHAT_MODEL_PATTERN = /^(gpt-|o[134](-|$)|chatgpt-)/;
-const NON_CHAT_PATTERN = /(embedding|whisper|tts|dall-e|moderation|audio|realtime|transcribe|image|search|sora)/;
+// -instruct is completions-only and 404s on /chat/completions; -codex is
+// code-specialised; live/realtime/audio are different endpoints entirely.
+const NON_CHAT_PATTERN = /(embedding|whisper|tts|dall-e|moderation|audio|realtime|transcribe|image|search|sora|instruct|codex|gpt-live)/;
+/** Dated snapshots and legacy suffixes duplicate their stable alias. */
+const SNAPSHOT_PATTERN = /(-\d{4}-\d{2}-\d{2}|-\d{4}|-16k)$/;
 
 function normalizeAssistantContent(value: unknown) {
   if (typeof value === "string") return value;
@@ -220,7 +224,12 @@ export const copilotRouter = router({
     try {
       const models = await listLLMModels();
       return models.data
-        .filter(model => CHAT_MODEL_PATTERN.test(model.id) && !NON_CHAT_PATTERN.test(model.id))
+        .filter(
+          model =>
+            CHAT_MODEL_PATTERN.test(model.id) &&
+            !NON_CHAT_PATTERN.test(model.id) &&
+            !SNAPSHOT_PATTERN.test(model.id)
+        )
         .map(model => ({ id: model.id, family: model.id.split("-")[0] }))
         .sort((a, b) => a.id.localeCompare(b.id));
     } catch (error) {
