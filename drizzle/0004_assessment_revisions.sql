@@ -100,3 +100,22 @@ DROP TRIGGER IF EXISTS "assessments_record_revision" ON "assessments";
 CREATE TRIGGER "assessments_record_revision"
   AFTER INSERT OR UPDATE OF "state" ON "assessments"
   FOR EACH ROW EXECUTE FUNCTION public.record_assessment_revision();
+
+--> statement-breakpoint
+
+-- Postgres grants EXECUTE to PUBLIC on a new function, which publishes this
+-- one as /rest/v1/rpc/record_assessment_revision — a SECURITY DEFINER entry
+-- point callable by anon. Supabase's own linter flags it, and it was flagged
+-- on this project until revoked. The trigger is unaffected: it runs as the
+-- table owner, not as whoever issued the statement.
+REVOKE ALL ON FUNCTION public.record_assessment_revision() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_assessment_revision() FROM anon;
+REVOKE ALL ON FUNCTION public.record_assessment_revision() FROM authenticated;
+
+--> statement-breakpoint
+
+-- Same reasoning for the shared updatedAt trigger function, which predates
+-- this migration and carried the same default grant.
+REVOKE ALL ON FUNCTION public.set_updated_at() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.set_updated_at() FROM anon;
+REVOKE ALL ON FUNCTION public.set_updated_at() FROM authenticated;
