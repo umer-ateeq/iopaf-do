@@ -70,17 +70,33 @@ export function serveStatic(app: Express) {
     })
   );
 
-  // Everything else is either unhashed or replaced in place (the engine, its
-  // screenshots, favicons), so it gets a short shared cache instead: revalidate
-  // often, but let the edge serve repeat views.
+  // index.html is the SPA shell: it names the hashed bundles, so a stale copy
+  // would point at files that no longer exist. It must always revalidate.
+  //
+  // Everything else here is unhashed but only changes on deploy — app.html is
+  // the 1.67 MB assessment engine, plus the engine screenshots and favicons.
+  // An earlier version of this rule matched on ".html" and so gave the engine
+  // no-cache, which meant every portal entry pulled all 1.67 MB from the origin
+  // in Frankfurt. They now stay fresh for an hour and may be served stale for a
+  // week while revalidating, so Cloudflare answers repeat views from its edge.
+  const ONE_HOUR = 3600;
+  const ONE_WEEK = 604_800;
+
   app.use(
     express.static(distPath, {
       setHeaders: (res, filePath) => {
-        if (filePath.endsWith(".html")) {
+        // The portal guard marks gated assets before static serving runs, and
+        // its decision is an access-control one. Never overwrite it.
+        if (res.getHeader("Cache-Control")) return;
+
+        if (path.basename(filePath) === "index.html") {
           res.setHeader("Cache-Control", "no-cache");
           return;
         }
-        res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+        res.setHeader(
+          "Cache-Control",
+          `public, max-age=${ONE_HOUR}, stale-while-revalidate=${ONE_WEEK}`
+        );
       },
     })
   );
