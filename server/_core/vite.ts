@@ -58,7 +58,32 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Vite writes a content hash into every filename under /assets, so those
+  // files are immutable: a change produces a new name. Serving them with the
+  // Express default of max-age=0 made Cloudflare report BYPASS and fetch each
+  // one from the origin on every visit — including the ~1.6 MB bundle.
+  app.use(
+    "/assets",
+    express.static(path.join(distPath, "assets"), {
+      immutable: true,
+      maxAge: "1y",
+    })
+  );
+
+  // Everything else is either unhashed or replaced in place (the engine, its
+  // screenshots, favicons), so it gets a short shared cache instead: revalidate
+  // often, but let the edge serve repeat views.
+  app.use(
+    express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache");
+          return;
+        }
+        res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+      },
+    })
+  );
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {

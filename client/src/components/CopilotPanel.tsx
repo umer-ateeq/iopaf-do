@@ -212,6 +212,7 @@ export function CopilotPanel({
               emptyStateMessage="Ask about the active question, standard, evidence, risk or remedial action."
               suggestedPrompts={prompts}
               inputSeed={requestedPrompt}
+              richMarkdown={false}
             />
             <div className="copilot-footnote"><ShieldCheck aria-hidden="true" /> Current assessment data is included only according to your Setup privacy choices.</div>
           </div>

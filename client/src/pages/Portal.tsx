@@ -1,8 +1,17 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { CopilotPanel, type CopilotContext } from "@/components/CopilotPanel";
+import type { CopilotContext } from "@/components/CopilotPanel";
+
+/**
+ * Loaded on the first "Ask IOPAF" click rather than with the portal, so the
+ * panel and its chat dependencies cost nothing to an assessor who never opens
+ * it. Kept mounted afterwards so the conversation survives closing the drawer.
+ */
+const CopilotPanel = lazy(() =>
+  import("@/components/CopilotPanel").then(m => ({ default: m.CopilotPanel }))
+);
 import { Bot } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 /**
  * Settings the protected engine's own Setup card can save. The platform owns
@@ -28,6 +37,8 @@ export default function Portal() {
   const signingOutRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  /** Latches on first open so the chunk is fetched once and state persists. */
+  const [copilotMounted, setCopilotMounted] = useState(false);
   const [copilotExpanded, setCopilotExpanded] = useState(false);
   const [copilotView, setCopilotView] = useState<"chat" | "settings">("chat");
   const [copilotContext, setCopilotContext] = useState<CopilotContext>({ page: "unknown", stream: "none", mode: "general" });
@@ -63,9 +74,9 @@ export default function Portal() {
         if (data.context) setCopilotContext(data.context);
         setCopilotPrompt(data.prompt ? { id: Date.now(), content: data.prompt.slice(0, 4000) } : null);
         setCopilotView("chat");
-        setCopilotOpen(true);
+        setCopilotMounted(true); setCopilotOpen(true);
       }
-      if (data.type === "IOPAF_COPILOT_SETTINGS") { setCopilotView("settings"); setCopilotOpen(true); }
+      if (data.type === "IOPAF_COPILOT_SETTINGS") { setCopilotView("settings"); setCopilotMounted(true); setCopilotOpen(true); }
       if (data.type === "IOPAF_COPILOT_SETTINGS_REQUEST") { sendSettings(); sendModels(); }
       if (data.type === "IOPAF_COPILOT_MODELS_REQUEST") {
         const result = await modelsQuery.refetch();
@@ -133,7 +144,7 @@ export default function Portal() {
         </a>
         <div className="portal-user">
           <span>{user?.name || user?.email || "Authenticated user"}</span>
-          <button className="portal-copilot-button" onClick={() => { setCopilotPrompt(null); setCopilotView("chat"); setCopilotOpen(true); }}><Bot aria-hidden="true" /> Ask IOPAF</button>
+          <button className="portal-copilot-button" onClick={() => { setCopilotPrompt(null); setCopilotView("chat"); setCopilotMounted(true); setCopilotOpen(true); }}><Bot aria-hidden="true" /> Ask IOPAF</button>
           <a href="/">Website</a>
           <button onClick={signOut}>Sign out</button>
         </div>
@@ -146,16 +157,20 @@ export default function Portal() {
         referrerPolicy="same-origin"
         onLoad={() => { sendSettings(); sendModels(); }}
       />
-      <CopilotPanel
-        open={copilotOpen}
-        expanded={copilotExpanded}
-        context={copilotContext}
-        initialView={copilotView}
-        onClose={() => { setCopilotOpen(false); setCopilotExpanded(false); }}
-        onExpandedChange={setCopilotExpanded}
-        onSettingsChanged={settings => iframeRef.current?.contentWindow?.postMessage({ type: "IOPAF_COPILOT_SETTINGS_STATE", settings }, window.location.origin)}
-        requestedPrompt={copilotPrompt}
-      />
+      {copilotMounted && (
+        <Suspense fallback={null}>
+          <CopilotPanel
+            open={copilotOpen}
+            expanded={copilotExpanded}
+            context={copilotContext}
+            initialView={copilotView}
+            onClose={() => { setCopilotOpen(false); setCopilotExpanded(false); }}
+            onExpandedChange={setCopilotExpanded}
+            onSettingsChanged={settings => iframeRef.current?.contentWindow?.postMessage({ type: "IOPAF_COPILOT_SETTINGS_STATE", settings }, window.location.origin)}
+            requestedPrompt={copilotPrompt}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
