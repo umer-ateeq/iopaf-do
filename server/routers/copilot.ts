@@ -91,10 +91,62 @@ const settingsInput = z.object({
   includeRemediation: z.boolean(),
 });
 
-const messageSchema = z.object({
-  role: z.enum(["user", "assistant"]),
-  content: z.string().trim().min(1).max(4000),
-});
+/**
+ * A turn's length limit depends on who wrote it. 4,000 characters is a sane
+ * bound on typed user input, but an assistant turn is this server's own
+ * previous answer replayed as history, and those run far longer — measured at
+ * 7,704 characters in the portal. Sharing the user's cap made every follow-up
+ * fail validation before it reached the model, so the Copilot was single-turn.
+ * The assistant bound is generous but finite: the completion budget is 4,000
+ * tokens, so no genuine answer approaches 40,000 characters.
+ */
+const USER_CONTENT_MAX = 4000;
+const ASSISTANT_CONTENT_MAX = 40_000;
+/** Total characters of history sent upstream, oldest turns dropped first. */
+const CONVERSATION_CHARS_MAX = 60_000;
+
+const messageSchema = z.discriminatedUnion("role", [
+  z.object({
+    role: z.literal("user"),
+    content: z.string().trim().min(1).max(USER_CONTENT_MAX),
+  }),
+  z.object({
+    role: z.literal("assistant"),
+    content: z.string().trim().min(1).max(ASSISTANT_CONTENT_MAX),
+  }),
+]);
+
+export type CopilotTurn = z.infer<typeof messageSchema>;
+
+export const chatInputSchema = z
+  .object({
+    messages: z.array(messageSchema).min(1).max(12),
+    context: copilotContextSchema,
+  })
+  .refine(value => value.messages[value.messages.length - 1]?.role === "user", {
+    message: "The conversation must end with a user message",
+    path: ["messages"],
+  });
+
+/**
+ * Keep the newest turns within a total character budget. Long answers
+ * accumulate quickly, and an unbounded history means an ever-growing prompt
+ * billed on every follow-up. The final user turn is always kept, even when it
+ * alone exceeds the budget.
+ */
+export function trimConversation(messages: CopilotTurn[]): CopilotTurn[] {
+  const kept: CopilotTurn[] = [];
+  let total = 0;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (kept.length && total + message.content.length > CONVERSATION_CHARS_MAX) break;
+    kept.unshift(message);
+    total += message.content.length;
+  }
+
+  return kept;
+}
 
 const RATE_LIMIT_PER_MINUTE = 12;
 const rateBuckets = new Map<number, number[]>();
@@ -169,7 +221,7 @@ export function buildAllowedCopilotContext(
 }
 
 export function buildCopilotSystemPrompt(context: string) {
-  return `You are the IOPAF AI Copilot for professional IT operations, SDLC, testing and IAM control assessments. Explain the active assessment precisely and practically. Use the supplied IOPAF context as the source of truth. Distinguish an IOPAF interpretation from a verbatim source-standard requirement; never invent clauses or quotations. When evidence is missing, say so. For remediation, propose measurable actions, accountable owner roles, sequencing, completion evidence and realistic due-date logic. Do not make legal/compliance claims. Do not change or claim to change assessment answers, maturity scores, evidence, risk parameters or actions. Keep answers structured, concise and suitable for an assessor.\n\nACTIVE IOPAF CONTEXT\n${context}`;
+  return `You are the IOPAF AI Copilot for professional IT operations, SDLC, testing and IAM control assessments. Explain the active assessment precisely and practically. Use the supplied IOPAF context as the source of truth. Distinguish an IOPAF interpretation from a verbatim source-standard requirement; never invent clauses or quotations. When evidence is missing, say so. For remediation, propose measurable actions, accountable owner roles, sequencing, completion evidence and realistic due-date logic. Do not make legal/compliance claims. Do not change or claim to change assessment answers, maturity scores, evidence, risk parameters or actions. Keep answers structured, concise and suitable for an assessor. Match the length of your answer to what was actually asked: reply to a greeting, an acknowledgement or a one-line clarification in a sentence or two, and reserve full structured guidance for a genuine assessment question.\n\nACTIVE IOPAF CONTEXT\n${context}`;
 }
 
 /** Chat-capable models only: the catalogue also lists embeddings, audio and image endpoints. */
@@ -260,14 +312,7 @@ export const copilotRouter = router({
     }
   }),
 
-  chat: protectedProcedure
-    .input(
-      z.object({
-        messages: z.array(messageSchema).min(1).max(12),
-        context: copilotContextSchema,
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
+  chat: protectedProcedure.input(chatInputSchema).mutation(async ({ ctx, input }) => {
       assertConfigured();
       enforceRateLimit(ctx.user.id);
 
@@ -287,7 +332,7 @@ export const copilotRouter = router({
 
       const messages: LlmMessage[] = [
         { role: "system", content: buildCopilotSystemPrompt(context) },
-        ...input.messages.map(message => ({
+        ...trimConversation(input.messages).map(message => ({
           role: message.role,
           content: message.content,
         })),
