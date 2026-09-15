@@ -294,13 +294,27 @@ export const copilotRouter = router({
       ];
 
       try {
-        const response = await invokeLLM({
-          model: settings.model,
-          messages,
-          maxTokens: 1600,
-        });
-        const content = normalizeAssistantContent(response.choices[0]?.message?.content);
-        if (!content) throw new Error("The model returned an empty response");
+        const response = await invokeLLM({ model: settings.model, messages });
+        const choice = response.choices[0];
+        const content = normalizeAssistantContent(choice?.message?.content);
+
+        if (!content) {
+          // A reasoning model that spends its whole budget on hidden reasoning
+          // returns finish_reason "length" with no visible answer. Say so,
+          // rather than reporting an indistinguishable "empty response".
+          if (choice?.finish_reason === "length") {
+            const reasoning = response.usage?.completion_tokens_details?.reasoning_tokens;
+            console.warn(
+              `[Copilot] ${settings.model} exhausted its token budget before answering` +
+                (reasoning ? ` (${reasoning} reasoning tokens)` : "")
+            );
+            throw new Error(
+              `${settings.model} used its whole token budget before producing an answer. Ask a narrower question, or choose a different model in Setup.`
+            );
+          }
+          throw new Error("The model returned an empty response");
+        }
+
         return { content, model: settings.model };
       } catch (error) {
         providerError(error);
