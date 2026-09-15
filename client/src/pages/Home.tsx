@@ -208,6 +208,7 @@ function EngineFrame({
   title,
   className = "",
   eager = false,
+  priority,
   onOpen,
 }: {
   src: string;
@@ -216,13 +217,15 @@ function EngineFrame({
   title: string;
   className?: string;
   eager?: boolean;
+  /** Hints which above-the-fold image the browser should fetch first. */
+  priority?: "high" | "low";
   onOpen: OpenEngineVisual;
 }) {
   return (
     <figure className={`engine-frame ${className}`.trim()}>
       <div className="engine-frame-head"><span>{label}</span><b>{title}</b><i>AUTHENTIC ENGINE VIEW</i></div>
       <button className="engine-frame-open" onClick={(event) => onOpen({ src, alt, label, title }, event.currentTarget)} aria-label={`Open full engine view: ${title}`}>
-        <span className="engine-frame-screen"><img src={src} alt={alt} loading={eager ? "eager" : "lazy"} decoding="async" /></span>
+        <span className="engine-frame-screen"><img src={src} alt={alt} loading={eager ? "eager" : "lazy"} decoding="async" fetchPriority={priority} /></span>
         <span className="engine-frame-action">VIEW FULL ENGINE SCREEN <i aria-hidden="true">↗</i></span>
       </button>
     </figure>
@@ -239,6 +242,7 @@ function EngineHeroVisual({ onOpen }: { onOpen: OpenEngineVisual }) {
         title="Development · operations · IAM across nine stages"
         className="hero-engine-frame"
         eager
+        priority="high"
         onOpen={onOpen}
       />
       <EngineFrame
@@ -248,6 +252,7 @@ function EngineHeroVisual({ onOpen }: { onOpen: OpenEngineVisual }) {
         title="Fourteen sources · three governed streams"
         className="hero-risk-frame"
         eager
+        priority="low"
         onOpen={onOpen}
       />
       <div className="hero-visual-caption"><span>WORKING PRODUCT</span><b>What you see is the assessment engine—not a conceptual mock-up.</b></div>
