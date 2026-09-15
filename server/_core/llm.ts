@@ -237,7 +237,16 @@ export async function listLLMModels(): Promise<ModelsResponse> {
   return (await response.json()) as ModelsResponse;
 }
 
-/** True when the server has a Copilot credential at all. */
+/**
+ * True when the server has a usable Copilot credential.
+ *
+ * The App Platform specs ship REPLACE_ME placeholders, and a placeholder is
+ * a non-empty string: taken at face value it would report the Copilot as
+ * configured and then fail every question with a provider 401. Treating it as
+ * absent makes the UI say "not configured on this server" instead, which is
+ * the truth and is actionable.
+ */
 export function isLLMConfigured() {
-  return Boolean(ENV.openaiApiKey);
+  const key = ENV.openaiApiKey.trim();
+  return key.length > 0 && !key.startsWith("REPLACE_ME");
 }
