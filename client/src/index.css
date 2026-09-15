@@ -901,3 +901,11 @@ button:focus-visible,a:focus-visible { outline-color: rgba(0,76,151,.58); }
 .markdown-lite pre code { padding: 0; color: #e8f0f7; background: transparent; font-size: 11px; line-height: 1.5; }
 .markdown-lite a { color: #004c97; text-decoration: underline; word-break: break-word; }
 .markdown-lite hr { margin: 12px 0; border: 0; border-top: 1px solid #cad8e5; }
+
+/* Assessment backup state, shown in the protected portal bar. */
+.portal-backup { padding: 3px 8px; border: 1px solid #b9c7d0; border-radius: 2px; color: #425d73; font-family: "Courier New",monospace; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.portal-backup-saved { color: #1f6b3a; border-color: #9ec9ae; background: #f1f9f4; }
+.portal-backup-restored { color: #004c97; border-color: #9bc0e0; background: #eff6fc; }
+.portal-backup-syncing { color: #6b5a2a; border-color: #d8c68d; background: #fdf9ee; }
+.portal-backup-error,.portal-backup-too-large { color: #8e2633; border-color: #edb7bf; background: #fff1f3; }
+@media (max-width: 760px) { .portal-backup { display: none; } }

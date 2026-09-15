@@ -11,6 +11,7 @@ const CopilotPanel = lazy(() =>
 );
 import { Bot } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAssessmentBackup } from "@/lib/useAssessmentBackup";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 /**
@@ -120,6 +121,33 @@ export default function Portal() {
     nativeTestRef.current = nativeTest.mutateAsync;
   }, [nativeSave.mutateAsync, nativeTest.mutateAsync]);
 
+  // Mirrors the engine's autosaved assessment into Supabase and brings it
+  // back on a new browser. Reads the same localStorage key the engine writes,
+  // so the protected engine file is untouched.
+  const backup = useAssessmentBackup(isAuthenticated);
+
+  // A restore rewrites localStorage after the engine has already booted, so the
+  // frame has to re-read it. This only fires on the first pass, before the
+  // user can have entered anything into the running engine.
+  useEffect(() => {
+    if (!backup.needsEngineReload) return;
+    backup.acknowledgeReload();
+    const frame = iframeRef.current;
+    if (frame) frame.src = frame.src;
+  }, [backup.needsEngineReload, backup.acknowledgeReload]);
+
+  const backupLabel = (() => {
+    switch (backup.status.state) {
+      case "syncing": return "Backing up…";
+      case "saved": return "Backed up";
+      case "restored": return "Restored from backup";
+      case "too-large":
+        return `Too large to back up (${(backup.status.bytes / 1048576).toFixed(1)} MB of ${(backup.status.limit / 1048576).toFixed(0)} MB)`;
+      case "error": return "Backup unavailable";
+      default: return null;
+    }
+  })();
+
   const signOut = async () => {
     signingOutRef.current = true;
     await logout();
@@ -143,6 +171,20 @@ export default function Portal() {
           <span>IOPAF</span><i aria-hidden="true" /><small>Protected assessment workspace</small>
         </a>
         <div className="portal-user">
+          {backupLabel && (
+            <span
+              className={`portal-backup portal-backup-${backup.status.state}`}
+              title={
+                backup.status.state === "error"
+                  ? "This assessment is still saved in this browser, but could not be copied to your account."
+                  : backup.status.state === "too-large"
+                    ? "Export the assessment to keep a copy. Evidence attachments are what usually push it past the limit."
+                    : "Your assessment is copied to your IOPAF account so it survives this browser."
+              }
+            >
+              {backupLabel}
+            </span>
+          )}
           <span>{user?.name || user?.email || "Authenticated user"}</span>
           <button className="portal-copilot-button" onClick={() => { setCopilotPrompt(null); setCopilotView("chat"); setCopilotMounted(true); setCopilotOpen(true); }}><Bot aria-hidden="true" /> Ask IOPAF</button>
           <a href="/">Website</a>
