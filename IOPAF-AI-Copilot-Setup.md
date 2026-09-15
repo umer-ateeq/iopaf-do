@@ -87,8 +87,30 @@ client, a log line or a `TRPCError`.
   A multi-instance deployment would need a shared store to enforce this
   globally; today each instance counts separately.
 - 12 messages per turn, 4,000 characters each.
-- Model output capped at 1,600 tokens.
-- 45-second provider timeout, 3 attempts with backoff on 408/409/429/5xx.
+- 4,000 completion tokens per answer. On a reasoning model that budget
+  covers hidden reasoning *and* the visible answer, so the client asks for
+  `reasoning_effort: "low"` to keep reasoning from consuming it — measured at
+  192 reasoning tokens instead of 1,216 on the same prompt.
+- 90-second provider timeout, 3 attempts with backoff on 408/409/429/5xx.
+  Timeouts are **not** retried: a timed-out completion may already have been
+  generated and billed, so retrying would charge twice and double the wait.
+
+## Model compatibility
+
+The catalogue spans families that accept different parameters — `gpt-4o`
+rejects `reasoning_effort`, `gpt-3.5-turbo` caps completion tokens at 4,096.
+Instead of a hardcoded capability table, `llm.ts` sends the modern parameters
+and learns each model's limits from the provider's own rejection text,
+caching them for the process lifetime. Adding a new model to the account
+needs no code change.
+
+Models are filtered to chat-capable, non-duplicate entries: `-instruct`
+returns HTTP 404 from `/chat/completions`, `-codex` is code-specialised, and
+dated snapshots duplicate their stable alias. On the current account that
+takes 130 models down to 34.
+
+A reasoning model is slow — a full assessment answer measured around 30
+seconds. The panel shows a pending state throughout.
 
 ## Offline behaviour
 
