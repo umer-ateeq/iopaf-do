@@ -3,8 +3,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Loader2, Send, User, Sparkles } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
-import { Streamdown } from "streamdown";
+import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import { MarkdownLite } from "@/components/MarkdownLite";
+
+/**
+ * Streamdown carries Shiki and Mermaid with it — every syntax grammar and the
+ * whole diagram stack. Loading it lazily keeps all of that out of the initial
+ * bundle, and callers that pass richMarkdown={false} never fetch it at all.
+ */
+const Streamdown = lazy(() =>
+  import("streamdown").then(m => ({ default: m.Streamdown }))
+);
 
 /**
  * Message type matching server-side LLM Message interface
@@ -60,6 +69,13 @@ export type AIChatBoxProps = {
 
   /** Optional externally requested draft, identified so the same text can be requested again. */
   inputSeed?: { id: number; content: string } | null;
+
+  /**
+   * Render replies with Streamdown (syntax highlighting, Mermaid diagrams).
+   * Defaults to true for compatibility. Pass false for prose-and-bullets
+   * content to avoid loading that whole dependency tree.
+   */
+  richMarkdown?: boolean;
 };
 
 /**
@@ -123,6 +139,7 @@ export function AIChatBox({
   emptyStateMessage = "Start a conversation with AI",
   suggestedPrompts,
   inputSeed,
+  richMarkdown = true,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -272,7 +289,13 @@ export function AIChatBox({
                     >
                       {message.role === "assistant" ? (
                         <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <Streamdown>{message.content}</Streamdown>
+                          {richMarkdown ? (
+                            <Suspense fallback={<MarkdownLite>{message.content}</MarkdownLite>}>
+                              <Streamdown>{message.content}</Streamdown>
+                            </Suspense>
+                          ) : (
+                            <MarkdownLite>{message.content}</MarkdownLite>
+                          )}
                         </div>
                       ) : (
                         <p className="whitespace-pre-wrap text-sm">

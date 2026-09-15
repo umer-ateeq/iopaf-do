@@ -150,7 +150,19 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+// vitePluginManusRuntime inlines a host shim and a second React runtime
+// directly into index.html — 367,094 characters of it, which can never be
+// cached because it lives in the HTML. The debug collector serves a log
+// endpoint that only exists under `vite dev`. Neither belongs in a production
+// build, so they load only when Vite is serving.
+const isDev = process.env.NODE_ENV !== "production";
+
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  ...(isDev ? [vitePluginManusRuntime(), vitePluginManusDebugCollector()] : []),
+];
 
 export default defineConfig({
   plugins,
