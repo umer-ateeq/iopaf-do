@@ -96,7 +96,7 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getCopilotSettingsByUserId(userId: number) {
+export async function getCopilotSettingsByOpenId(openId: string) {
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot get Copilot settings: database not available");
@@ -106,30 +106,43 @@ export async function getCopilotSettingsByUserId(userId: number) {
   const result = await db
     .select()
     .from(copilotSettings)
-    .where(eq(copilotSettings.userId, userId))
+    .where(eq(copilotSettings.openId, openId))
     .limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
 
 export async function upsertCopilotSettings(
-  userId: number,
-  settings: Omit<InsertCopilotSetting, "id" | "userId" | "createdAt" | "updatedAt">
+  openId: string,
+  settings: Omit<InsertCopilotSetting, "id" | "openId" | "createdAt" | "updatedAt">
 ) {
   const db = await getDb();
   if (!db) {
-    throw new Error("Copilot settings cannot be saved while the database is unavailable");
+    throw new Error("COPILOT_SETTINGS_STORE_UNAVAILABLE");
   }
 
-  const values: InsertCopilotSetting = { userId, ...settings };
+  const values: InsertCopilotSetting = { openId, ...settings };
 
   // Postgres equivalent of MySQL's ON DUPLICATE KEY UPDATE.
   await db.insert(copilotSettings).values(values).onConflictDoUpdate({
-    target: copilotSettings.userId,
+    target: copilotSettings.openId,
     set: settings,
   });
 
-  return getCopilotSettingsByUserId(userId);
+  return getCopilotSettingsByOpenId(openId);
+}
+
+/**
+ * Whether a settings store is configured at all.
+ *
+ * This host runs without DATABASE_URL by design — commit 02ce637 moved the
+ * users write into a Supabase Edge Function so the Postgres password need not
+ * sit on the application host. Copilot preferences do need somewhere to live,
+ * so the UI asks first and explains itself rather than offering a Save button
+ * that cannot work.
+ */
+export async function isSettingsStoreAvailable() {
+  return Boolean(await getDb());
 }
 
 // TODO: add feature queries here as your schema grows.

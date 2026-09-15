@@ -163,6 +163,8 @@ export function CopilotPanel({
   const models = modelsQuery.data || [];
   const prompts = useMemo(() => promptSet(context), [context]);
   const serverConfigured = settingsQuery.data?.serverConfigured !== false;
+  // False when the server has no settings database; Save cannot succeed.
+  const settingsStorable = settingsQuery.data?.settingsStorable !== false;
   const send = (content: string) => {
     const next = [...messages, { role: "user" as const, content }].slice(-12);
     setMessages(next);
@@ -217,6 +219,7 @@ export function CopilotPanel({
           <form className="copilot-settings" onSubmit={event => { event.preventDefault(); saveMutation.mutate(form); }}>
             <div className="copilot-setting-lead"><b>AI assistance</b><p>The IOPAF platform provides the model connection. Choose the model and how much of your assessment may be included in a request.</p></div>
             {!serverConfigured && <div className="copilot-notice">No model connection is configured on this server, so Copilot requests will fail until an administrator adds one.</div>}
+            {serverConfigured && !settingsStorable && <div className="copilot-notice">This server has no settings database, so these choices cannot be saved. The Copilot still answers using the platform defaults.</div>}
             <label className="copilot-toggle"><input type="checkbox" checked={form.enabled} onChange={event => setForm({ ...form, enabled: event.target.checked })} /><span>Enable IOPAF Copilot</span></label>
             <label>
               <span>Model</span>
@@ -229,7 +232,7 @@ export function CopilotPanel({
             </label>
             <fieldset><legend>Context privacy</legend><label className="copilot-toggle"><input type="checkbox" checked={form.includeCurrentResponse} onChange={event => setForm({ ...form, includeCurrentResponse: event.target.checked })} /><span>Include current ratings, evidence summaries and risk values</span></label><label className="copilot-toggle"><input type="checkbox" checked={form.includeRemediation} onChange={event => setForm({ ...form, includeRemediation: event.target.checked })} /><span>Include the active remediation text</span></label></fieldset>
             {status && <div className="copilot-status" role="status">{status}</div>}
-            <div className="copilot-settings-actions"><button type="button" onClick={() => testMutation.mutate(form)} disabled={testMutation.isPending}>{testMutation.isPending ? "Testing…" : "Test connection"}</button><button type="submit" className="primary" disabled={saveMutation.isPending}>{saveMutation.isPending ? "Saving…" : "Save settings"}</button></div>
+            <div className="copilot-settings-actions"><button type="button" onClick={() => testMutation.mutate(form)} disabled={testMutation.isPending}>{testMutation.isPending ? "Testing…" : "Test connection"}</button><button type="submit" className="primary" disabled={saveMutation.isPending || !settingsStorable} title={settingsStorable ? undefined : "No settings database is configured on this server"}>{saveMutation.isPending ? "Saving…" : "Save settings"}</button></div>
           </form>
         )}
       </aside>
