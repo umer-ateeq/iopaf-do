@@ -6,14 +6,20 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 /**
- * Every route is split out.
+ * Home is imported statically; everything else is split out.
  *
- * Statically importing all five put the landing page, the protected portal,
- * sign-in and the callback into one entry bundle, so a visitor who only reads
- * the public site still downloaded the portal, and an assessor going straight
- * to /portal still downloaded the marketing page.
+ * Splitting all five looked better on paper and measured worse. Home is what
+ * a public visitor lands on, and making it lazy meant the browser fetched the
+ * entry, mounted React, and only then discovered it needed Home — a second
+ * round trip that pushed content from about 2.4s to 3.2s on a high-latency
+ * connection. It also gained nothing: Home reaches useAuth, which reaches
+ * supabase, so that chunk downloaded on the public page regardless, just later.
+ *
+ * The real saving was never Home. It is keeping Portal, its Copilot panel and
+ * the assessment backup off the public page, and those stay lazy below.
  */
-const Home = lazy(() => import("./pages/Home"));
+import Home from "./pages/Home";
+
 const Portal = lazy(() => import("./pages/Portal"));
 const Login = lazy(() => import("./pages/Login"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
