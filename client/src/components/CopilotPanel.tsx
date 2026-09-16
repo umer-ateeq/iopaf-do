@@ -162,11 +162,94 @@ export function CopilotPanel({
     onSuccess: data => setStatus(data?.detail || "Connection verified."),
     onError: error => setStatus(error.message),
   });
+  // Streamed answers. A reasoning model takes seconds before its first token
+  // and tens of seconds to finish, so waiting for a whole response turned all
+  // of that into dead time. The tRPC mutation is kept as the fallback for when
+  // the stream cannot be opened at all.
+  const [streaming, setStreaming] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [partial, setPartial] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+
   const chatMutation = trpc.copilot.chat.useMutation({
     onSuccess: data => {
       if (data?.content) setMessages(current => [...current, { role: "assistant", content: data.content }]);
     },
   });
+
+  const streamAnswer = async (history: ChatMessage[]) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setStreamError(null);
+    setPartial("");
+    setStreaming(true);
+
+    let text = "";
+    try {
+      const response = await fetch("/api/copilot/stream", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: history, context }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        // Nothing has been shown yet, so fall back to the whole-response path
+        // rather than surfacing a transport problem to the user.
+        chatMutation.mutate({ messages: history, context });
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const record = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf("\n\n");
+
+          const event = /^event: (.*)$/m.exec(record)?.[1];
+          const raw = /^data: (.*)$/m.exec(record)?.[1];
+          if (!raw) continue;
+          const payload = JSON.parse(raw) as { text?: string; message?: string };
+
+          if (event === "delta" && payload.text) {
+            text += payload.text;
+            setPartial(text);
+          } else if (event === "error") {
+            setStreamError(payload.message ?? "The Copilot request failed");
+          }
+        }
+      }
+
+      if (text) setMessages(current => [...current, { role: "assistant", content: text }]);
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") return;
+      if (!text) {
+        chatMutation.mutate({ messages: history, context });
+      } else {
+        // Keep what arrived: a truncated answer is more use than none.
+        setMessages(current => [...current, { role: "assistant", content: text }]);
+        setStreamError("The answer was cut short.");
+      }
+    } finally {
+      setStreaming(false);
+      setPartial("");
+      abortRef.current = null;
+    }
+  };
+
+  // Stop pulling from the provider if the panel unmounts mid-answer.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const models = modelsQuery.data || [];
   const prompts = useMemo(() => promptSet(context), [context]);
@@ -176,8 +259,17 @@ export function CopilotPanel({
   const send = (content: string) => {
     const next = [...messages, { role: "user" as const, content }].slice(-12);
     setMessages(next);
-    chatMutation.mutate({ messages: next, context });
+    void streamAnswer(next);
   };
+
+  // The partial answer is shown as a message so it renders through the same
+  // markdown path as a finished one, rather than appearing as raw text and
+  // then reflowing once complete.
+  const shown = partial
+    ? [...messages, { role: "assistant" as const, content: partial }]
+    : messages;
+  const busy = streaming || chatMutation.isPending;
+  const errorText = streamError ?? chatMutation.error?.message ?? null;
 
   if (!open) return null;
 
@@ -209,11 +301,13 @@ export function CopilotPanel({
           <div className="copilot-chat-view">
             {!serverConfigured && <div className="copilot-notice">The AI Copilot is not configured on this server. Contact your administrator.</div>}
             {serverConfigured && !settingsQuery.data?.enabled && <div className="copilot-notice">Copilot is disabled. Enable it in Setup.</div>}
-            {chatMutation.error && <div className="copilot-error" role="alert">{chatMutation.error.message}</div>}
+            {errorText && <div className="copilot-error" role="alert">{errorText}</div>}
             <AIChatBox
-              messages={messages}
+              messages={shown}
               onSendMessage={send}
-              isLoading={chatMutation.isPending}
+              // Only "thinking" until the first token lands. Once text is
+              // arriving the answer itself is the progress indicator.
+              isLoading={busy && !partial}
               height="100%"
               className="copilot-chat"
               placeholder="Ask about this assessment context…"

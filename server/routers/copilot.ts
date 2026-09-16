@@ -189,9 +189,16 @@ function defaultSettings() {
   };
 }
 
-async function settingsFor(openId: string) {
+/**
+ * Exported so the streaming route resolves settings exactly as the mutation
+ * does — same defaults, same privacy flags. Two code paths deciding what may
+ * leave the server is how they drift apart.
+ */
+export async function settingsForOpenId(openId: string) {
   return (await getCopilotSettingsByOpenId(openId)) || defaultSettings();
 }
+
+const settingsFor = settingsForOpenId;
 
 function publicSettings(
   settings: Awaited<ReturnType<typeof settingsFor>>,

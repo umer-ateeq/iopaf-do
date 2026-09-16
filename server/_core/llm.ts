@@ -240,6 +240,88 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   throw new Error(`${model} rejected every supported parameter combination`);
 }
 
+/**
+ * Stream a completion, yielding text as the provider produces it.
+ *
+ * A reasoning model spends seconds thinking before the first token, and then
+ * seconds more writing: a one-sentence answer measured 5.5s end to end, and a
+ * full one over thirty. Waiting for the whole body before showing anything
+ * makes all of that dead time. Streaming does not make the model faster, it
+ * removes the waiting.
+ *
+ * Deliberately not routed through the capability-learning retry in invokeLLM:
+ * once bytes are on the wire there is nothing to retry into. Callers that need
+ * the negotiation should use invokeLLM, which is also the non-streaming
+ * fallback if this throws before the first chunk.
+ */
+export async function* streamLLM(params: InvokeParams): AsyncGenerator<string> {
+  const { model } = params;
+  const budget = maxTokenCap.get(model)
+    ? Math.min(params.maxTokens ?? DEFAULT_MAX_COMPLETION_TOKENS, maxTokenCap.get(model)!)
+    : params.maxTokens ?? DEFAULT_MAX_COMPLETION_TOKENS;
+
+  const payload: Record<string, unknown> = {
+    model,
+    messages: params.messages,
+    stream: true,
+  };
+  if (isGptFamily(model)) {
+    payload.max_completion_tokens = budget;
+    if (!noReasoningEffort.has(model)) payload.reasoning_effort = "low";
+  } else {
+    payload.max_tokens = budget;
+  }
+
+  const response = await request("/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await errorMessageOf(response);
+    throw new Error(
+      `LLM provider returned HTTP ${response.status}: ${redactSecrets(message).slice(0, 500)}`
+    );
+  }
+  if (!response.body) throw new Error("The LLM provider returned no stream");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Server-sent events: records separated by a blank line, each a "data:"
+    // line. A chunk boundary can split a record, so only complete ones are
+    // consumed and the remainder stays buffered.
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const record = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+
+      for (const line of record.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{ delta?: { content?: string | null } }>;
+          };
+          const text = parsed.choices?.[0]?.delta?.content;
+          if (text) yield text;
+        } catch {
+          // A malformed record is not worth abandoning the answer for.
+        }
+      }
+    }
+  }
+}
+
 export async function listLLMModels(): Promise<ModelsResponse> {
   const response = await request("/models", { method: "GET" });
   if (!response.ok) {

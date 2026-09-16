@@ -11,6 +11,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { protectPortalAsset } from "../portalAccess";
 import { registerAuthRoutes } from "../authRoutes";
+import { registerCopilotStreamRoute } from "../copilotStreamRoute";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -48,6 +49,9 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerAuthRoutes(app);
   app.use("/app.html", protectPortalAsset);
+  // Streamed Copilot answers. Registered before the tRPC middleware because it
+  // holds the connection open, which a JSON-body transport cannot.
+  registerCopilotStreamRoute(app);
   // tRPC API
   app.use(
     "/api/trpc",
