@@ -40,7 +40,21 @@ async function startServer() {
   // that only helps traffic that goes through it: a direct origin hit, a health
   // check, or a deployment without the CDN in front got the full uncompressed
   // bundle. First in the chain so it covers every response below.
-  app.use(compression({ threshold: 1024 }));
+  app.use(
+    compression({
+      threshold: 1024,
+      filter: (req, res) => {
+        // Never compress server-sent events. The middleware buffers in order
+        // to compress, which holds every token until the response ends: a
+        // streamed answer measured its first word at 23.9s and finished 16ms
+        // later, all 1,382 tokens arriving at once. That is strictly worse
+        // than not streaming, because the buffering is invisible.
+        const type = String(res.getHeader("Content-Type") ?? "");
+        if (type.includes("text/event-stream")) return false;
+        return compression.filter(req, res);
+      },
+    })
+  );
 
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));

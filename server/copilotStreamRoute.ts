@@ -85,6 +85,11 @@ export function registerCopilotStreamRoute(app: Express) {
 
     const send = (event: string, data: unknown) => {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      // Push each event out rather than letting anything accumulate it. The
+      // compression middleware is configured to skip event-streams for exactly
+      // this reason, and res.flush is what it adds when it does wrap a
+      // response; calling it is harmless otherwise.
+      (res as Response & { flush?: () => void }).flush?.();
     };
 
     // If the reader navigates away mid-answer, stop pulling from the provider.
