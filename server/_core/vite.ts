@@ -58,6 +58,16 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // Browsers request /favicon.ico unprompted. There is no such file, so the
+  // SPA catch-all below answered with index.html — which, before the Manus
+  // runtime was taken out of production builds, meant 367 KB of HTML for an
+  // icon request on every cold visit. Answer it directly instead. Declared
+  // before the static handlers so nothing else can claim the path.
+  app.get("/favicon.ico", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=604800");
+    res.status(204).end();
+  });
+
   // Vite writes a content hash into every filename under /assets, so those
   // files are immutable: a change produces a new name. Serving them with the
   // Express default of max-age=0 made Cloudflare report BYPASS and fetch each

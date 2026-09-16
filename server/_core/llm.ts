@@ -82,6 +82,18 @@ const maxTokenCap = new Map<string, number>();
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Is this an OpenAI GPT or o-series model?
+ *
+ * Only that family takes max_completion_tokens and reasoning_effort. Claude and
+ * Gemini reached through an OpenAI-compatible gateway take max_tokens instead,
+ * and Gemini in particular can answer with an empty length-limited response if
+ * given the OpenAI spelling.
+ */
+export function isGptFamily(model: string) {
+  return /^(gpt-|o\d|chatgpt-)/.test(model.toLowerCase());
+}
+
 function assertConfigured() {
   if (!ENV.openaiApiKey) {
     throw new Error(
@@ -197,15 +209,17 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   // Two recoverable rejections, so at most two corrective retries.
   for (let attempt = 0; attempt < 3; attempt++) {
     const cap = maxTokenCap.get(model);
-    const payload: Record<string, unknown> = {
-      model,
-      messages: params.messages,
-      max_completion_tokens: cap ? Math.min(requested, cap) : requested,
-    };
+    const budget = cap ? Math.min(requested, cap) : requested;
+    const payload: Record<string, unknown> = { model, messages: params.messages };
 
-    // Keeps hidden reasoning from consuming the whole budget on a reasoning
-    // model. Non-reasoning models reject it, which we learn once per model.
-    if (!noReasoningEffort.has(model)) payload.reasoning_effort = "low";
+    if (isGptFamily(model)) {
+      payload.max_completion_tokens = budget;
+      // Keeps hidden reasoning from consuming the whole budget on a reasoning
+      // model. Non-reasoning models reject it, which we learn once per model.
+      if (!noReasoningEffort.has(model)) payload.reasoning_effort = "low";
+    } else {
+      payload.max_tokens = budget;
+    }
 
     const response = await request("/chat/completions", {
       method: "POST",
