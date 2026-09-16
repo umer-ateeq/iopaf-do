@@ -85,8 +85,16 @@ export function CopilotPanel({
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const settingsQuery = trpc.copilot.settings.useQuery(undefined, { enabled: open });
-  const modelsQuery = trpc.copilot.models.useQuery(undefined, { enabled: open });
+  // Same freshness windows as Portal, so opening the panel reuses what the
+  // portal already fetched instead of going back to the provider.
+  const settingsQuery = trpc.copilot.settings.useQuery(undefined, {
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+  const modelsQuery = trpc.copilot.models.useQuery(undefined, {
+    enabled: open,
+    staleTime: 15 * 60_000,
+  });
 
   // The provider credential belongs to the platform, so the only things a
   // user controls are the switch, the catalogue model and the privacy scope.

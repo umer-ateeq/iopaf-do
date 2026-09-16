@@ -45,8 +45,19 @@ export default function Portal() {
   const [copilotContext, setCopilotContext] = useState<CopilotContext>({ page: "unknown", stream: "none", mode: "general" });
   const [copilotPrompt, setCopilotPrompt] = useState<{ id: number; content: string } | null>(null);
   const utils = trpc.useUtils();
-  const settingsQuery = trpc.copilot.settings.useQuery(undefined, { enabled: isAuthenticated });
-  const modelsQuery = trpc.copilot.models.useQuery(undefined, { enabled: isAuthenticated });
+  // staleTime is what stops these being fetched twice. CopilotPanel asks for
+  // the same two queries when it opens, and without a freshness window React
+  // Query would treat the cached copy as stale and go back to the provider.
+  // The catalogue is also cached server-side for 15 minutes, so the two
+  // windows agree.
+  const settingsQuery = trpc.copilot.settings.useQuery(undefined, {
+    enabled: isAuthenticated,
+    staleTime: 5 * 60_000,
+  });
+  const modelsQuery = trpc.copilot.models.useQuery(undefined, {
+    enabled: isAuthenticated,
+    staleTime: 15 * 60_000,
+  });
   const nativeSave = trpc.copilot.saveSettings.useMutation();
   const nativeTest = trpc.copilot.testConnection.useMutation();
   const settingsRef = useRef(settingsQuery.data);

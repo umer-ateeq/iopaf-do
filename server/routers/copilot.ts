@@ -245,13 +245,28 @@ export function buildCopilotSystemPrompt(context: string) {
   return `You are the IOPAF AI Copilot for professional IT operations, SDLC, testing and IAM control assessments. Explain the active assessment precisely and practically. Use the supplied IOPAF context as the source of truth. Distinguish an IOPAF interpretation from a verbatim source-standard requirement; never invent clauses or quotations. When evidence is missing, say so. For remediation, propose measurable actions, accountable owner roles, sequencing, completion evidence and realistic due-date logic. Do not make legal/compliance claims. Do not change or claim to change assessment answers, maturity scores, evidence, risk parameters or actions. Keep answers structured, concise and suitable for an assessor. Match the length of your answer to what was actually asked: reply to a greeting, an acknowledgement or a one-line clarification in a sentence or two, and reserve full structured guidance for a genuine assessment question.\n\nACTIVE IOPAF CONTEXT\n${context}`;
 }
 
-/** Chat-capable models only: the catalogue also lists embeddings, audio and image endpoints. */
-const CHAT_MODEL_PATTERN = /^(gpt-|o[134](-|$)|chatgpt-)/;
+/**
+ * Chat-capable models only: the catalogue also lists embeddings, audio and
+ * image endpoints.
+ *
+ * Claude and Gemini are included because an OpenAI-compatible gateway can
+ * serve all three families from one endpoint. A GPT-only pattern silently hid
+ * every non-OpenAI model the account offered, which looked like the gateway
+ * having nothing to give.
+ */
+const CHAT_MODEL_PATTERN = /^(gpt-|o[134](-|$)|chatgpt-|claude-|gemini-)/;
 // -instruct is completions-only and 404s on /chat/completions; -codex is
 // code-specialised; live/realtime/audio are different endpoints entirely.
 const NON_CHAT_PATTERN = /(embedding|whisper|tts|dall-e|moderation|audio|realtime|transcribe|image|search|sora|instruct|codex|gpt-live)/;
-/** Dated snapshots and legacy suffixes duplicate their stable alias. */
-const SNAPSHOT_PATTERN = /(-\d{4}-\d{2}-\d{2}|-\d{4}|-16k)$/;
+/**
+ * Dated snapshots and legacy suffixes duplicate their stable alias.
+ *
+ * Three shapes, because the providers do not agree: OpenAI uses
+ * "-2025-08-07" and older "-0613", while Anthropic uses an undelimited
+ * "-20250929". Only the first was handled, so every Claude snapshot appeared
+ * in the list next to the alias it duplicates.
+ */
+const SNAPSHOT_PATTERN = /(-\d{4}-\d{2}-\d{2}|-\d{8}|-\d{4}|-16k)$/;
 
 function normalizeAssistantContent(value: unknown) {
   if (typeof value === "string") return value;
@@ -287,6 +302,75 @@ function assertConfigured() {
   }
 }
 
+export type CatalogueModel = { id: string; family: string };
+
+/**
+ * A gateway may namespace ids, e.g. "anthropic/claude-sonnet-4". Family and
+ * chat-capability are decided on the last segment so a prefix cannot hide a
+ * model from the filters.
+ */
+function modelLeaf(id: string) {
+  const slash = id.lastIndexOf("/");
+  return slash === -1 ? id : id.slice(slash + 1);
+}
+
+export function modelFamily(id: string) {
+  const leaf = modelLeaf(id).toLowerCase();
+  if (leaf.startsWith("claude-")) return "Claude";
+  if (leaf.startsWith("gemini-")) return "Gemini";
+  if (/^(gpt-|o[134](-|$)|chatgpt-)/.test(leaf)) return "GPT";
+  return "Other";
+}
+
+export function selectChatModels(ids: string[]): CatalogueModel[] {
+  return ids
+    .filter(id => {
+      const leaf = modelLeaf(id);
+      return (
+        CHAT_MODEL_PATTERN.test(leaf) &&
+        !NON_CHAT_PATTERN.test(leaf) &&
+        !SNAPSHOT_PATTERN.test(leaf)
+      );
+    })
+    .map(id => ({ id, family: modelFamily(id) }))
+    .sort((a, b) => a.family.localeCompare(b.family) || a.id.localeCompare(b.id));
+}
+
+/**
+ * The catalogue changes when a provider ships a model, not between page loads.
+ * Caching it stops every Setup open costing a provider round trip, and the
+ * in-flight promise means concurrent callers share one request rather than
+ * starting a stampede after the cache expires.
+ */
+const CATALOGUE_TTL_MS = 15 * 60_000;
+let catalogueCache: { models: CatalogueModel[]; at: number } | null = null;
+let catalogueInFlight: Promise<CatalogueModel[]> | null = null;
+
+export function clearCatalogueCache() {
+  catalogueCache = null;
+  catalogueInFlight = null;
+}
+
+async function loadCatalogue(): Promise<CatalogueModel[]> {
+  if (catalogueCache && Date.now() - catalogueCache.at < CATALOGUE_TTL_MS) {
+    return catalogueCache.models;
+  }
+  if (catalogueInFlight) return catalogueInFlight;
+
+  catalogueInFlight = (async () => {
+    try {
+      const response = await listLLMModels();
+      const models = selectChatModels(response.data.map(entry => entry.id));
+      catalogueCache = { models, at: Date.now() };
+      return models;
+    } finally {
+      catalogueInFlight = null;
+    }
+  })();
+
+  return catalogueInFlight;
+}
+
 export const copilotRouter = router({
   settings: protectedProcedure.query(async ({ ctx }) =>
     publicSettings(await settingsFor(ctx.user.openId), await isSettingsStoreAvailable())
@@ -295,16 +379,7 @@ export const copilotRouter = router({
   models: protectedProcedure.query(async () => {
     assertConfigured();
     try {
-      const models = await listLLMModels();
-      return models.data
-        .filter(
-          model =>
-            CHAT_MODEL_PATTERN.test(model.id) &&
-            !NON_CHAT_PATTERN.test(model.id) &&
-            !SNAPSHOT_PATTERN.test(model.id)
-        )
-        .map(model => ({ id: model.id, family: model.id.split("-")[0] }))
-        .sort((a, b) => a.id.localeCompare(b.id));
+      return await loadCatalogue();
     } catch (error) {
       providerError(error);
     }
@@ -336,11 +411,17 @@ export const copilotRouter = router({
   testConnection: protectedProcedure.input(settingsInput).mutation(async ({ input }) => {
     assertConfigured();
     try {
-      const catalog = await listLLMModels();
-      if (!catalog.data.some(model => model.id === input.model)) {
+      // Deliberately bypasses the cache: "Test connection" should prove the
+      // provider is reachable now, not that it was fifteen minutes ago.
+      clearCatalogueCache();
+      const catalogue = await loadCatalogue();
+      if (!catalogue.some(model => model.id === input.model)) {
         throw new Error(`${input.model} is not available to this server's provider account`);
       }
-      return { ok: true, detail: `${input.model} is available and the provider responded` };
+      return {
+        ok: true,
+        detail: `${input.model} (${modelFamily(input.model)}) is available and the provider responded`,
+      };
     } catch (error) {
       providerError(error);
     }

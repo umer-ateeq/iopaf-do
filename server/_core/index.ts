@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -33,6 +34,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // Compress at the origin. Cloudflare already compresses what it proxies, but
+  // that only helps traffic that goes through it: a direct origin hit, a health
+  // check, or a deployment without the CDN in front got the full uncompressed
+  // bundle. First in the chain so it covers every response below.
+  app.use(compression({ threshold: 1024 }));
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

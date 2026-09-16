@@ -909,3 +909,8 @@ button:focus-visible,a:focus-visible { outline-color: rgba(0,76,151,.58); }
 .portal-backup-syncing { color: #6b5a2a; border-color: #d8c68d; background: #fdf9ee; }
 .portal-backup-error,.portal-backup-too-large { color: #8e2633; border-color: #edb7bf; background: #fff1f3; }
 @media (max-width: 760px) { .portal-backup { display: none; } }
+
+/* Shown while a lazily-loaded route chunk arrives. Neutral on purpose: this
+   appears on the public site as well as the protected portal. */
+.route-loading { min-height: 60vh; display: grid; place-items: center; background: #f6f8fa; }
+.route-loading span { color: #0b2e52; font-family: Georgia,"Times New Roman",serif; font-size: 28px; letter-spacing: .16em; opacity: .5; }
