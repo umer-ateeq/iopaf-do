@@ -1,0 +1,30 @@
+# Core runtime
+NODE_ENV=production
+PORT=8080
+JWT_SECRET=REPLACE_ME_WITH_AT_LEAST_32_RANDOM_BYTES
+VITE_APP_ID=iopaf
+
+# Supabase authentication (publishable key is intentionally used in browser code)
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_PUBLISHABLE_KEY=REPLACE_ME_SUPABASE_PUBLISHABLE_KEY
+VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=REPLACE_ME_SUPABASE_PUBLISHABLE_KEY
+
+# Supabase PostgreSQL connection; required to persist Copilot preferences and
+# encrypted per-user custom provider credentials.
+DATABASE_URL=REPLACE_ME_SUPABASE_POSTGRES_POOLER_URL
+
+# LLM_PROVIDER: auto | managed | external
+# auto prefers the managed gateway when both BUILT_IN values are usable,
+# otherwise it falls back to OPENAI_*.
+LLM_PROVIDER=auto
+COPILOT_DEFAULT_MODEL=gpt-5-mini
+
+# External OpenAI-compatible provider. Direct api.openai.com lists only OpenAI
+# models; use a compatible multi-provider gateway for GPT + Claude + Gemini.
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=REPLACE_ME_OPENAI_OR_GATEWAY_KEY
+
+# Optional managed multi-model gateway.
+BUILT_IN_FORGE_API_URL=https://YOUR_MANAGED_GATEWAY
+BUILT_IN_FORGE_API_KEY=REPLACE_ME_MANAGED_GATEWAY_KEY
